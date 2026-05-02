@@ -1,0 +1,20 @@
+{
+  "name": "Function Plane",
+  "short_name": "Function Plane",
+  "description": "A puzzle game about f(x)",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e0f10",
+  "theme_color": "#0e0f10",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "education"],
+  "lang": "en"
+}
