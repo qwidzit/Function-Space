@@ -71,10 +71,10 @@ function physicsStep(ph, fns, dt) {
       const ny    = 1 / mag;
       const vn    = ph.vx * nx + ph.vy * ny; // velocity into surface
       if (vn < 0) {
-        ph.vx -= vn * nx;  // remove penetrating component
-        ph.vy -= vn * ny;
-        ph.vx *= 0.997;    // tiny friction
-        ph.vy *= 0.997;
+        ph.vx -= (1 + PHYSICS_CONFIG.bounciness) * vn * nx;
+        ph.vy -= (1 + PHYSICS_CONFIG.bounciness) * vn * ny;
+        ph.vx *= PHYSICS_CONFIG.energyRetention;
+        ph.vy *= PHYSICS_CONFIG.energyRetention;
       }
     }
   }
