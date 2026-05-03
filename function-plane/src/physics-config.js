@@ -11,8 +11,8 @@
 //   Values above ~0.4 make most levels very hard to solve.
 
 const PHYSICS_CONFIG = {
-  energyRetention: 0.997,
-  bounciness:      0.0,
+  energyRetention: 0.9985,
+  bounciness:      0.5,
 };
 
 window.PHYSICS_CONFIG = PHYSICS_CONFIG;
