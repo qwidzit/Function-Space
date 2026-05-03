@@ -115,17 +115,56 @@ function App() {
       );
     }
 
+    if (route === 'level') {
+      const { pack, levelIndex } = nav;
+      const handleComplete = (rating, score) => {
+        setProgress(prev => {
+          const next = { ...prev };
+          const pd   = next[pack.id] = { ...prev[pack.id] };
+          const stars = [...pd.stars];
+          const best  = [...pd.best];
+          stars[levelIndex] = Math.max(stars[levelIndex] ?? -1, rating);
+          best[levelIndex]  = best[levelIndex] == null ? score : Math.min(best[levelIndex], score);
+          // Unlock next level if it was null
+          if (levelIndex + 1 < 10 && stars[levelIndex + 1] === null) {
+            stars[levelIndex + 1] = -1;
+          }
+          pd.stars = stars;
+          pd.best  = best;
+          return next;
+        });
+      };
+      const handleNext = () => {
+        const nextIndex = levelIndex + 1;
+        if (nextIndex < 10) {
+          navigate('level', { pack, levelIndex: nextIndex });
+        } else {
+          navigate('levels', { pack });
+        }
+      };
+      return (
+        <LevelScreen
+          pack={pack}
+          levelIndex={levelIndex}
+          progress={progress}
+          density={settings.density}
+          onBack={() => navigate('levels', { pack })}
+          onComplete={handleComplete}
+          onNext={handleNext}
+        />
+      );
+    }
+
     // Screens coming in later steps
     return (
       <PlaceholderScreen
         title={({
-          'level':      'Level',
           'how-to-play':'How to Play',
           'achievements':'Achievements',
           'account':    'Account',
         })[route] || route}
         subtitle="Coming in the next step"
-        onBack={() => navigate(route === 'level' ? 'levels' : 'main')}
+        onBack={() => navigate('main')}
       />
     );
   };
@@ -187,6 +226,8 @@ function mount() {
     typeof PackSelector === 'undefined' ||
     typeof LevelSelector === 'undefined' ||
     typeof SettingsScreen === 'undefined' ||
+    typeof LevelScreen === 'undefined' ||
+    typeof LevelCompletePopup === 'undefined' ||
     typeof freshProgress === 'undefined' ||
     typeof Icon === 'undefined'
   ) {

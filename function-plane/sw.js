@@ -1,4 +1,4 @@
-const CACHE = 'fp-v1';
+const CACHE = 'fp-v2';
 const SHELL = [
   './',
   './index.html',
@@ -10,6 +10,8 @@ const SHELL = [
   './src/pack-selector.jsx',
   './src/level-selector.jsx',
   './src/settings-screen.jsx',
+  './src/level-screen.jsx',
+  './src/level-complete.jsx',
   './src/app.jsx',
   './icons/icon.svg',
 ];
