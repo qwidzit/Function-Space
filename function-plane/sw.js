@@ -1,8 +1,9 @@
-const CACHE = 'fp-v2';
+const CACHE = 'fp-v3';
 const SHELL = [
   './',
   './index.html',
   './src/styles.css',
+  './src/physics-config.js',
   './src/ui-kit.jsx',
   './src/app-logo.jsx',
   './src/data.jsx',
