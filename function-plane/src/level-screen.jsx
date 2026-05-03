@@ -8,17 +8,17 @@ const EQ_COLORS = ['#c74440','#2d70b3','#388c46','#6042a6','#fa7e19','#000000'];
 // ─── Physics constants ───────────────────────────────────────
 const GRAVITY    = 12;   // math-units / s²
 const SUB_STEPS  = 5;    // sub-steps per animation frame
-const STAR_R     = 0.55; // collection radius (math units)
+const STAR_R     = 0.55; // star collection radius (math units)
+const BALL_R     = 0.22; // ball physics radius (≈ 8px at default scale 40)
 const FALL_LIMIT = -13;  // y below which level ends
 const TIME_LIMIT = 28;   // seconds before auto-end
 
-function computeScore(starsCollected, eqsUsed, totalStars) {
-  // Lower is better: each equation adds 100, each missed star adds 60, +20 base
-  return eqsUsed * 100 + (totalStars - starsCollected) * 60 + 20;
+function computeScore(eqsUsed) {
+  return eqsUsed * 100 + 20;
 }
-function starRating(starsCollected, totalStars) {
-  if (starsCollected === totalStars) return 3;
-  if (starsCollected >= totalStars - 1) return 2;
+function starRating(eqsUsed, score, eqGoal, scoreGoal) {
+  if (eqsUsed <= eqGoal)    return 3;
+  if (score   <= scoreGoal) return 2;
   return 1;
 }
 
@@ -51,16 +51,16 @@ function physicsStep(ph, fns, dt) {
   ph.x += ph.vx * dt;
   ph.y += ph.vy * dt;
 
-  // Collision: find the highest curve the ball is at or below
+  // Collision: find the highest curve whose surface is above ball's bottom edge
   let hitFn = null, hitY = -Infinity;
   for (const fn of fns) {
     const cy = fn(ph.x);
     if (!isFinite(cy) || isNaN(cy)) continue;
-    if (ph.y <= cy && cy > hitY) { hitY = cy; hitFn = fn; }
+    if (ph.y - BALL_R <= cy && cy > hitY) { hitY = cy; hitFn = fn; }
   }
 
   if (hitFn !== null) {
-    ph.y = hitY;
+    ph.y = hitY + BALL_R; // keep ball centre above curve surface
     // Tangent slope at hit point
     const h = 0.003;
     const fp = hitFn(ph.x + h), fm = hitFn(ph.x - h);
@@ -81,7 +81,7 @@ function physicsStep(ph, fns, dt) {
 
   // Star collection
   for (let i = 0; i < ph.stars.length; i++) {
-    if (!ph.stars[i].collected && Math.hypot(ph.x - ph.stars[i].x, ph.y - ph.stars[i].y) < STAR_R) {
+    if (!ph.stars[i].collected && Math.hypot(ph.x - ph.stars[i].x, ph.y - ph.stars[i].y) < STAR_R + BALL_R) {
       ph.stars[i] = { ...ph.stars[i], collected: true };
     }
   }
@@ -190,16 +190,15 @@ function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
       fill="none" strokeLinecap="round" strokeLinejoin="round"/>;
   });
 
-  // Stars
+  // Stars — disappear on collection
   const starsEl = simStars.map((s, i) => {
+    if (s.collected) return null;
     const p = m2p(s.x, s.y);
     return (
       <g key={i} transform={`translate(${p.x},${p.y})`}>
         <circle r={14} fill="var(--lv-bg)" opacity={0.65}/>
         <path d="M0 -10 L3 -3 L11 -2 L5 3 L7 11 L0 6 L-7 11 L-5 3 L-11 -2 L-3 -3 Z"
-          fill={s.collected ? 'var(--lv-star)' : 'none'}
-          stroke="var(--lv-star)" strokeWidth={1.5} strokeLinejoin="round"
-          style={{ transition: s.collected ? 'fill .12s' : 'none' }}/>
+          fill="none" stroke="var(--lv-star)" strokeWidth={1.5} strokeLinejoin="round"/>
       </g>
     );
   });
@@ -375,7 +374,18 @@ function PlaneFiller({ equations, ballPos, simStars, startPos }) {
   );
 }
 
-// ─── HUD chip ────────────────────────────────────────────────
+// ─── HUD chips ───────────────────────────────────────────────
+function GoalChip({ stars, label }) {
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+      height: 22, padding: '0 8px', borderRadius: 6,
+      background: 'var(--lv-surface)', border: '1px solid var(--lv-line)' }}>
+      <Stars count={stars} total={3} size={7} c="var(--lv-star)" empty="var(--fp-ink-4)"/>
+      <span className="fp-mono" style={{ fontSize: 10, color: 'var(--fp-ink-3)' }}>{label}</span>
+    </div>
+  );
+}
+
 function HudChip({ label, value }) {
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -389,8 +399,10 @@ function HudChip({ label, value }) {
 
 // ─── Level screen ─────────────────────────────────────────────
 function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, density = 'comfortable' }) {
-  const levelData = getLevelData(pack.id, levelIndex);
+  const levelData  = getLevelData(pack.id, levelIndex);
   const totalStars = levelData.stars.length;
+  const scoreGoal  = levelData.scoreGoal ?? 320;
+  const eqGoal     = levelData.eqGoal    ?? 1;
 
   const [equations, setEquations] = useSL([
     { id: 1, expr: '', fn: null, color: EQ_COLORS[0], visible: true },
@@ -400,7 +412,8 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   const [ballPos, setBallPos] = useSL({ ...levelData.ball });
   const [simStars, setSimStars] = useSL(levelData.stars.map(s => ({ ...s, collected: false })));
   const [collectedCount, setCollectedCount] = useSL(0);
-  const [completed, setCompleted] = useSL(null); // null | { starsCollected, score, starsRating, prevBest, isNewBest }
+  const [completed, setCompleted] = useSL(null); // null | { score, starsRating, prevBest, isNewBest }
+  const [missMsg, setMissMsg] = useSL(false);    // brief "collect all stars" nudge
 
   const physRef = useRL(null);   // mutable physics state (avoids stale closures)
   const animRef = useRL(null);
@@ -472,13 +485,23 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         cancelAnimationFrame(animRef.current);
         setRunning(false);
 
+        if (collected < totalStars) {
+          // Not all stars collected — reset without completing
+          setBallPos({ ...levelData.ball });
+          setSimStars(levelData.stars.map(s => ({ ...s, collected: false })));
+          setCollectedCount(0);
+          setMissMsg(true);
+          setTimeout(() => setMissMsg(false), 1800);
+          return;
+        }
+
         const eqsN    = equationsRef.current.filter(e => e.fn).length;
-        const sc      = computeScore(collected, eqsN, totalStars);
-        const rating  = starRating(collected, totalStars);
+        const sc      = computeScore(eqsN);
+        const rating  = starRating(eqsN, sc, eqGoal, scoreGoal);
         const prevB   = best;
         const isNew   = prevB == null || sc < prevB;
 
-        const result = { starsCollected: collected, score: sc, starsRating: rating, prevBest: prevB, isNewBest: isNew };
+        const result = { score: sc, starsRating: rating, prevBest: prevB, isNewBest: isNew };
         setCompleted(result);
         onComplete(rating, sc);
         return;
@@ -492,7 +515,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   }, [running]);
 
   return (
-    <div className="fp-screen" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="fp-screen" style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: `calc(14px + env(safe-area-inset-top, 0px)) 14px 8px`,
@@ -524,22 +547,37 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       </div>
 
       {/* HUD */}
-      <div style={{ padding: '0 14px 8px', flex: '0 0 auto',
-        display: 'flex', alignItems: 'center', gap: 8, background: 'var(--lv-bg)' }}>
-        <HudChip label="Best"  value={best == null ? '—' : best}/>
-        <HudChip label="Eqs"   value={eqsUsed}/>
-        <HudChip label="Stars" value={`${collectedCount}/${totalStars}`}/>
-        <button onClick={handlePlay} style={{
-          marginLeft: 'auto',
-          display: 'flex', alignItems: 'center', gap: 7,
-          padding: '8px 14px 8px 16px', borderRadius: 999,
-          background: running ? '#c74440' : 'var(--fp-accent)',
-          color: running ? '#fff' : 'var(--fp-accent-ink)',
-          fontSize: 13, fontWeight: 500 }}>
-          {running ? 'Stop' : 'Play'} {running
-            ? <svg width={10} height={10} viewBox="0 0 24 24" fill="currentColor"><rect x={4} y={4} width={6} height={16} rx={1}/><rect x={14} y={4} width={6} height={16} rx={1}/></svg>
-            : <Icon.Play size={11} c="currentColor"/>}
-        </button>
+      <div style={{ padding: '0 14px 6px', flex: '0 0 auto', background: 'var(--lv-bg)' }}>
+        {/* Progress row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <HudChip label="Best"  value={best == null ? '—' : best}/>
+          <HudChip label="Eqs"   value={eqsUsed}/>
+          <HudChip label="Stars" value={`${collectedCount}/${totalStars}`}/>
+          <button onClick={handlePlay} style={{
+            marginLeft: 'auto',
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '8px 14px 8px 16px', borderRadius: 999,
+            background: running ? '#c74440' : 'var(--fp-accent)',
+            color: running ? '#fff' : 'var(--fp-accent-ink)',
+            fontSize: 13, fontWeight: 500 }}>
+            {running ? 'Stop' : 'Play'} {running
+              ? <svg width={10} height={10} viewBox="0 0 24 24" fill="currentColor"><rect x={4} y={4} width={6} height={16} rx={1}/><rect x={14} y={4} width={6} height={16} rx={1}/></svg>
+              : <Icon.Play size={11} c="currentColor"/>}
+          </button>
+        </div>
+        {/* Goals row */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          <GoalChip stars={2} label={`score ≤ ${scoreGoal}`}/>
+          <GoalChip stars={3} label={`≤ ${eqGoal} eq`}/>
+          {missMsg && (
+            <div style={{
+              marginLeft: 'auto', fontSize: 11, color: '#c74440',
+              display: 'flex', alignItems: 'center', fontWeight: 500,
+            }}>
+              Collect all stars!
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Plane */}
@@ -560,7 +598,6 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       {completed && (
         <LevelCompletePopup
           pack={pack} levelIndex={levelIndex}
-          starsCollected={completed.starsCollected}
           starsRating={completed.starsRating}
           score={completed.score}
           prevBest={completed.prevBest}
