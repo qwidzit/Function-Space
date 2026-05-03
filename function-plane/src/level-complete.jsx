@@ -4,7 +4,7 @@ const { useState: useLCState, useEffect: useLCEffect } = React;
 
 function LevelCompletePopup({
   pack, levelIndex,
-  starsCollected, starsRating, score,
+  starsRating, score,
   prevBest, isNewBest, totalStars,
   onReplay, onNext, onClose,
 }) {
@@ -130,7 +130,7 @@ function LevelCompletePopup({
                 Stars
               </div>
               <div className="fp-mono" style={{ fontSize: 22, color: 'var(--fp-ink)' }}>
-                {starsCollected}/{totalStars}
+                {totalStars}/{totalStars}
               </div>
             </div>
           </div>
