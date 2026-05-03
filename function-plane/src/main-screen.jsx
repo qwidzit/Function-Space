@@ -17,7 +17,7 @@ function MainScreen({ onPlay, onInfo, onAchievements, onAccount, onSettings, tot
       {/* Top bar — sits just below the status bar */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: `calc(14px + env(safe-area-inset-top, 0px)) ${padX}px 0`,
+        padding: `calc(19px + env(safe-area-inset-top, 0px)) ${padX}px 0`,
         flex: '0 0 auto',
       }}>
         <button onClick={onSettings} aria-label="Settings"
@@ -49,7 +49,7 @@ function MainScreen({ onPlay, onInfo, onAchievements, onAccount, onSettings, tot
 
       {/* Hero — wordmark on a faint coordinate plane */}
       <div style={{
-        flex: '0 0 auto', padding: `22px ${padX}px 28px`,
+        flex: '0 0 auto', padding: `19px ${padX}px 19px`,
         position: 'relative',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
       }}>
