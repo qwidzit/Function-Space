@@ -50,7 +50,7 @@ function MainScreen({ onPlay, onInfo, onAchievements, onAccount, onSettings, tot
       {/* Hero — wordmark on a faint coordinate plane */}
       <div style={{
         flex: '0 0 auto',
-        margin: `0 ${padX}px`,
+        margin: `19px ${padX}px`,
         padding: '19px 0',
         position: 'relative',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
