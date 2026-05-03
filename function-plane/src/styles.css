@@ -86,6 +86,12 @@
   --fp-stack: 20px;
 }
 
+/* Prevent mobile scroll bouncing that causes black-screen compositing glitch */
+html, body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Reset */
 *, *::before, *::after { box-sizing: border-box; }
 button {
