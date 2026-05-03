@@ -1,4 +1,4 @@
-const CACHE = 'fp-v3';
+const CACHE = 'fp-v4';
 const SHELL = [
   './',
   './index.html',
@@ -11,8 +11,12 @@ const SHELL = [
   './src/pack-selector.jsx',
   './src/level-selector.jsx',
   './src/settings-screen.jsx',
+  './src/keyboard.jsx',
   './src/level-screen.jsx',
   './src/level-complete.jsx',
+  './src/how-to-play.jsx',
+  './src/achievements.jsx',
+  './src/account-screen.jsx',
   './src/app.jsx',
   './icons/icon.svg',
 ];

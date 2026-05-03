@@ -144,6 +144,7 @@ function App() {
       };
       return (
         <LevelScreen
+          key={`${pack.id}-${levelIndex}`}
           pack={pack}
           levelIndex={levelIndex}
           progress={progress}
@@ -155,15 +156,22 @@ function App() {
       );
     }
 
-    // Screens coming in later steps
+    if (route === 'how-to-play') {
+      return <HowToPlayScreen onBack={() => navigate('main')} density={settings.density}/>;
+    }
+
+    if (route === 'achievements') {
+      return <AchievementsScreen onBack={() => navigate('main')} progress={progress} density={settings.density}/>;
+    }
+
+    if (route === 'account') {
+      return <AccountScreen onBack={() => navigate('main')} density={settings.density}/>;
+    }
+
     return (
       <PlaceholderScreen
-        title={({
-          'how-to-play':'How to Play',
-          'achievements':'Achievements',
-          'account':    'Account',
-        })[route] || route}
-        subtitle="Coming in the next step"
+        title={route}
+        subtitle="Coming soon"
         onBack={() => navigate('main')}
       />
     );
@@ -228,6 +236,10 @@ function mount() {
     typeof SettingsScreen === 'undefined' ||
     typeof LevelScreen === 'undefined' ||
     typeof LevelCompletePopup === 'undefined' ||
+    typeof HowToPlayScreen === 'undefined' ||
+    typeof AchievementsScreen === 'undefined' ||
+    typeof AccountScreen === 'undefined' ||
+    typeof MathKeyboard === 'undefined' ||
     typeof freshProgress === 'undefined' ||
     typeof Icon === 'undefined'
   ) {
