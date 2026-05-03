@@ -31,8 +31,8 @@ const Icon = {
   ),
   Settings: ({ size = 22, c = 'currentColor' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="3" stroke={c} strokeWidth="1.5"/>
-      <path d="M12 3 V5 M12 19 V21 M3 12 H5 M19 12 H21 M5.6 5.6 L7 7 M17 17 L18.4 18.4 M5.6 18.4 L7 17 M17 7 L18.4 5.6" stroke={c} strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="12" cy="12" r="2.8" stroke={c} strokeWidth="1.5"/>
+      <path d="M10.3 3.4 L9.6 5.2 A7 7 0 0 0 7.2 6.6 L5.3 6.1 L3.4 9.4 L4.9 10.8 A7.1 7.1 0 0 0 4.9 13.2 L3.4 14.6 L5.3 17.9 L7.2 17.4 A7 7 0 0 0 9.6 18.8 L10.3 20.6 H13.7 L14.4 18.8 A7 7 0 0 0 16.8 17.4 L18.7 17.9 L20.6 14.6 L19.1 13.2 A7.1 7.1 0 0 0 19.1 10.8 L20.6 9.4 L18.7 6.1 L16.8 6.6 A7 7 0 0 0 14.4 5.2 L13.7 3.4 Z" stroke={c} strokeWidth="1.5" strokeLinejoin="round"/>
     </svg>
   ),
   Star: ({ size = 14, filled = true, c = 'currentColor', empty = '#d6d6d0' }) => (

@@ -2,14 +2,30 @@
 
 const { useState, useEffect, useMemo } = React;
 
-function App() {
-  const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem('fp-theme');
-    if (saved) return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+const SETTINGS_DEFAULTS = {
+  theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  density: 'comfortable',
+  sound: true,
+  music: false,
+  haptics: true,
+  volume: 70,
+  gridLabels: true,
+  snapIntegers: false,
+  autoZoom: true,
+  notation: 'standard',
+  notifDaily: true,
+  notifNewPacks: true,
+  notifFriends: false,
+};
 
-  const [density] = useState('comfortable');
+function App() {
+  const [settings, setSettings] = useState(() => {
+    try {
+      return { ...SETTINGS_DEFAULTS, ...JSON.parse(localStorage.getItem('fp-settings') || '{}') };
+    } catch {
+      return { ...SETTINGS_DEFAULTS };
+    }
+  });
 
   const [progress, setProgress] = useState(() => {
     try {
@@ -22,11 +38,20 @@ function App() {
 
   const [nav, setNav] = useState({ route: 'main', pack: null, levelIndex: 0 });
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('fp-theme', theme);
-  }, [theme]);
+  const updateSetting = (key, value) =>
+    setSettings(s => ({ ...s, [key]: value }));
 
+  // Apply theme and density to the DOM
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+  }, [settings.theme]);
+
+  // Persist settings
+  useEffect(() => {
+    localStorage.setItem('fp-settings', JSON.stringify(settings));
+  }, [settings]);
+
+  // Persist progress
   useEffect(() => {
     localStorage.setItem('fp-progress', JSON.stringify(progress));
   }, [progress]);
@@ -46,7 +71,7 @@ function App() {
           totalStars={totalStars}
           continuePoint={continuePoint}
           progress={progress}
-          density={density}
+          density={settings.density}
           onPlay={() => navigate('packs')}
           onInfo={() => navigate('how-to-play')}
           onAchievements={() => navigate('achievements')}
@@ -56,28 +81,59 @@ function App() {
       );
     }
 
-    // Screens for future steps
+    if (route === 'packs') {
+      return (
+        <PackSelector
+          progress={progress}
+          density={settings.density}
+          onBack={() => navigate('main')}
+          onPickPack={pack => navigate('levels', { pack })}
+        />
+      );
+    }
+
+    if (route === 'levels') {
+      return (
+        <LevelSelector
+          pack={nav.pack}
+          progress={progress}
+          density={settings.density}
+          onBack={() => navigate('packs')}
+          onPickLevel={(pack, levelIndex) => navigate('level', { pack, levelIndex })}
+        />
+      );
+    }
+
+    if (route === 'settings') {
+      return (
+        <SettingsScreen
+          settings={settings}
+          updateSetting={updateSetting}
+          density={settings.density}
+          onBack={() => navigate('main')}
+        />
+      );
+    }
+
+    // Screens coming in later steps
     return (
       <PlaceholderScreen
         title={({
-          'packs': 'Pack Selector',
-          'levels': 'Level Selector',
-          'level': 'Level',
-          'how-to-play': 'How to Play',
-          'achievements': 'Achievements',
-          'settings': 'Settings',
-          'account': 'Account',
+          'level':      'Level',
+          'how-to-play':'How to Play',
+          'achievements':'Achievements',
+          'account':    'Account',
         })[route] || route}
         subtitle="Coming in the next step"
-        onBack={() => navigate('main')}
+        onBack={() => navigate(route === 'level' ? 'levels' : 'main')}
       />
     );
   };
 
   return (
     <div
-      data-theme={theme}
-      data-density={density}
+      data-theme={settings.theme}
+      data-density={settings.density}
       style={{ width: '100%', height: '100%' }}
     >
       {renderScreen()}
@@ -90,12 +146,10 @@ function PlaceholderScreen({ title, subtitle, onBack }) {
     <div className="fp-screen" style={{
       width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column',
-      paddingTop: 'max(56px, calc(44px + var(--safe-top)))',
-      paddingBottom: 'max(18px, var(--safe-bottom))',
       boxSizing: 'border-box',
     }}>
       <div style={{
-        padding: '8px 22px 6px',
+        padding: `calc(14px + env(safe-area-inset-top, 0px)) 22px 6px`,
         display: 'flex', alignItems: 'center',
       }}>
         <button onClick={onBack} style={{
@@ -116,10 +170,8 @@ function PlaceholderScreen({ title, subtitle, onBack }) {
         <div style={{
           fontFamily: "'Instrument Serif', Georgia, serif",
           fontStyle: 'italic',
-          fontSize: 36, lineHeight: 1,
-          letterSpacing: '-0.02em',
-          color: 'var(--fp-ink)',
-          textAlign: 'center',
+          fontSize: 36, lineHeight: 1, letterSpacing: '-0.02em',
+          color: 'var(--fp-ink)', textAlign: 'center',
         }}>{title}</div>
         <div style={{ fontSize: 13, color: 'var(--fp-ink-3)', textAlign: 'center' }}>
           {subtitle}
@@ -132,6 +184,9 @@ function PlaceholderScreen({ title, subtitle, onBack }) {
 function mount() {
   if (
     typeof MainScreen === 'undefined' ||
+    typeof PackSelector === 'undefined' ||
+    typeof LevelSelector === 'undefined' ||
+    typeof SettingsScreen === 'undefined' ||
     typeof freshProgress === 'undefined' ||
     typeof Icon === 'undefined'
   ) {

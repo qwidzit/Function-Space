@@ -7,6 +7,9 @@ const SHELL = [
   './src/app-logo.jsx',
   './src/data.jsx',
   './src/main-screen.jsx',
+  './src/pack-selector.jsx',
+  './src/level-selector.jsx',
+  './src/settings-screen.jsx',
   './src/app.jsx',
   './icons/icon.svg',
 ];

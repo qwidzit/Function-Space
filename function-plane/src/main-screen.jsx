@@ -10,15 +10,15 @@ function MainScreen({ onPlay, onInfo, onAchievements, onAccount, onSettings, tot
     <div className="fp-screen" style={{
       width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column',
-      paddingTop: 'max(56px, calc(44px + var(--safe-top)))',
-      paddingBottom: 'max(18px, var(--safe-bottom))',
+      paddingBottom: 'max(18px, env(safe-area-inset-bottom, 0px))',
       position: 'relative', overflow: 'hidden',
       boxSizing: 'border-box',
     }}>
-      {/* Top bar */}
+      {/* Top bar — sits just below the status bar */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: `6px ${padX}px 0`, flex: '0 0 auto',
+        padding: `calc(14px + env(safe-area-inset-top, 0px)) ${padX}px 0`,
+        flex: '0 0 auto',
       }}>
         <button onClick={onSettings} aria-label="Settings"
           style={{ width: 36, height: 36, borderRadius: 10,
@@ -49,7 +49,7 @@ function MainScreen({ onPlay, onInfo, onAchievements, onAccount, onSettings, tot
 
       {/* Hero — wordmark on a faint coordinate plane */}
       <div style={{
-        flex: '0 0 auto', padding: `34px ${padX}px 32px`,
+        flex: '0 0 auto', padding: `22px ${padX}px 28px`,
         position: 'relative',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
       }}>
