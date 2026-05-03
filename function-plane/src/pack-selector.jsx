@@ -1,15 +1,27 @@
 // Function Plane — Pack Selector
 
+const { useState: usePSState } = React;
+
 function PackSelector({ progress, onBack, onPickPack, density = 'comfortable' }) {
   const padX = density === 'compact' ? 18 : 22;
   const totalStars = totalStarsAll(progress);
   const totalPossible = (ROMAN_PACKS.length + SPECIAL_PACKS.length) * 30;
+  const [lockedPack, setLockedPack] = usePSState(null);
+
+  const handlePackClick = (pack, lockInfo) => {
+    if (lockInfo.locked) {
+      setLockedPack({ pack, lockInfo });
+    } else {
+      onPickPack(pack);
+    }
+  };
 
   return (
     <div className="fp-screen" style={{
       width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column',
       boxSizing: 'border-box',
+      position: 'relative',
     }}>
       {/* Top bar */}
       <div style={{
@@ -58,13 +70,14 @@ function PackSelector({ progress, onBack, onPickPack, density = 'comfortable' })
       }}>
         <PSectionLabel>Chapters</PSectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {ROMAN_PACKS.map((p, i) => {
-            const locked = packIsLocked(progress, p.id);
-            const stars = packTotalStars(progress, p.id);
+          {ROMAN_PACKS.map(p => {
+            const lockInfo = computePackLocked(progress, p);
+            const stars    = packTotalStars(progress, p.id);
             const complete = packIsComplete(progress, p.id);
             return (
-              <PackRow key={p.id} pack={p} stars={stars} locked={locked} complete={complete}
-                onClick={() => !locked && onPickPack(p)} />
+              <PackRow key={p.id} pack={p} stars={stars} locked={lockInfo.locked} complete={complete}
+                lockInfo={lockInfo}
+                onClick={() => handlePackClick(p, lockInfo)} />
             );
           })}
         </div>
@@ -73,18 +86,29 @@ function PackSelector({ progress, onBack, onPickPack, density = 'comfortable' })
           <PSectionLabel sub="By function family">Themed</PSectionLabel>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {SPECIAL_PACKS.map(p => {
-              const locked = packIsLocked(progress, p.id);
-              const stars = packTotalStars(progress, p.id);
+              const lockInfo = computePackLocked(progress, p);
+              const stars    = packTotalStars(progress, p.id);
               const complete = packIsComplete(progress, p.id);
               return (
-                <SpecialPackCard key={p.id} pack={p} stars={stars} locked={locked} complete={complete}
-                  onClick={() => !locked && onPickPack(p)} />
+                <SpecialPackCard key={p.id} pack={p} stars={stars} locked={lockInfo.locked} complete={complete}
+                  lockInfo={lockInfo} totalStars={totalStars}
+                  onClick={() => handlePackClick(p, lockInfo)} />
               );
             })}
           </div>
         </div>
         <div style={{ height: 12 }} />
       </div>
+
+      {/* Lock popup */}
+      {lockedPack && (
+        <LockedPackPopup
+          pack={lockedPack.pack}
+          lockInfo={lockedPack.lockInfo}
+          totalStars={totalStars}
+          onClose={() => setLockedPack(null)}
+        />
+      )}
     </div>
   );
 }
@@ -104,9 +128,9 @@ function PSectionLabel({ children, sub }) {
   );
 }
 
-function PackRow({ pack, stars, locked, complete, onClick }) {
+function PackRow({ pack, stars, locked, complete, onClick, lockInfo }) {
   return (
-    <button onClick={onClick} disabled={locked} style={{
+    <button onClick={onClick} style={{
       display: 'flex', alignItems: 'stretch', gap: 14,
       padding: '14px',
       borderRadius: 16,
@@ -114,7 +138,7 @@ function PackRow({ pack, stars, locked, complete, onClick }) {
       background: 'var(--fp-surface)',
       textAlign: 'left',
       opacity: locked ? 0.55 : 1,
-      cursor: locked ? 'not-allowed' : 'pointer',
+      cursor: 'pointer',
       width: '100%',
     }}>
       <div style={{
@@ -136,7 +160,7 @@ function PackRow({ pack, stars, locked, complete, onClick }) {
           fontSize: pack.numeral.length > 2 ? 22 : 26,
           color: 'var(--fp-ink)', position: 'relative', letterSpacing: '-0.02em',
         }}>
-          {pack.numeral}
+          {locked ? <Icon.Lock size={20} c="var(--fp-ink-3)"/> : pack.numeral}
         </span>
       </div>
 
@@ -161,7 +185,9 @@ function PackRow({ pack, stars, locked, complete, onClick }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
           {locked ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--fp-ink-3)', fontSize: 11.5 }}>
-              <Icon.Lock size={12} /> Complete previous pack
+              {lockInfo?.reason === 'prev_pack'
+                ? `${lockInfo.have}/29★ in ${lockInfo.prevPackName}`
+                : 'Locked'}
             </span>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -178,9 +204,10 @@ function PackRow({ pack, stars, locked, complete, onClick }) {
   );
 }
 
-function SpecialPackCard({ pack, stars, locked, complete, onClick }) {
+function SpecialPackCard({ pack, stars, locked, complete, onClick, lockInfo, totalStars }) {
+  const starsNeeded = locked && lockInfo?.reason === 'stars' ? lockInfo.need : null;
   return (
-    <button onClick={onClick} disabled={locked} style={{
+    <button onClick={onClick} style={{
       display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
       padding: '14px',
       borderRadius: 16,
@@ -189,7 +216,7 @@ function SpecialPackCard({ pack, stars, locked, complete, onClick }) {
       textAlign: 'left',
       minHeight: 140,
       opacity: locked ? 0.55 : 1,
-      cursor: locked ? 'not-allowed' : 'pointer',
+      cursor: 'pointer',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fp-ink-3)' }}>
@@ -221,7 +248,11 @@ function SpecialPackCard({ pack, stars, locked, complete, onClick }) {
         <div className="fp-mono" style={{ fontSize: 10.5, color: 'var(--fp-ink-3)', marginTop: 1 }}>{pack.tag}</div>
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           {locked ? (
-            <span style={{ fontSize: 10.5, color: 'var(--fp-ink-3)' }}>50★ to unlock</span>
+            <span style={{ fontSize: 10.5, color: 'var(--fp-ink-3)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {starsNeeded != null
+                ? <><Icon.Star size={10} c="var(--fp-ink-4)"/> {starsNeeded}★ to unlock</>
+                : 'Locked'}
+            </span>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Stars count={Math.min(3, Math.round(stars / 10))} total={3} size={10} />
@@ -233,6 +264,102 @@ function SpecialPackCard({ pack, stars, locked, complete, onClick }) {
         </div>
       </div>
     </button>
+  );
+}
+
+function LockedPackPopup({ pack, lockInfo, totalStars, onClose }) {
+  const { reason, need, have, prevPackName } = lockInfo;
+  const isPrevPack = reason === 'prev_pack';
+  const isStars    = reason === 'stars';
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 50,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'flex-end',
+      backdropFilter: 'blur(2px)',
+    }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: '100%',
+        background: 'var(--fp-bg)',
+        borderRadius: '22px 22px 0 0',
+        padding: '28px 24px',
+        paddingBottom: 'max(28px, env(safe-area-inset-bottom, 0px))',
+        boxShadow: '0 -8px 40px rgba(0,0,0,0.3)',
+        boxSizing: 'border-box',
+      }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--fp-ink-4)', margin: '-16px auto 20px' }}/>
+
+        {/* Icon */}
+        <div style={{
+          width: 56, height: 56, borderRadius: 18,
+          background: 'var(--fp-surface-2)', border: '1px solid var(--fp-line)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto 16px',
+        }}>
+          <Icon.Lock size={24} c="var(--fp-ink-3)"/>
+        </div>
+
+        <div style={{
+          textAlign: 'center',
+          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontStyle: 'italic', fontSize: 26, letterSpacing: '-0.02em',
+          color: 'var(--fp-ink)', marginBottom: 8,
+        }}>
+          {pack.name} is locked
+        </div>
+
+        {isPrevPack && (
+          <div style={{ textAlign: 'center', fontSize: 13.5, color: 'var(--fp-ink-3)', lineHeight: 1.55, marginBottom: 20 }}>
+            Earn <strong style={{ color: 'var(--fp-ink)' }}>29/30★</strong> in <strong style={{ color: 'var(--fp-ink)' }}>{prevPackName}</strong> to unlock this chapter.
+            <br/>
+            <span style={{ fontSize: 12, color: 'var(--fp-ink-4)', display: 'block', marginTop: 4 }}>
+              You have {have}/29 so far.
+            </span>
+          </div>
+        )}
+
+        {isStars && (
+          <div style={{ textAlign: 'center', fontSize: 13.5, color: 'var(--fp-ink-3)', lineHeight: 1.55, marginBottom: 20 }}>
+            Earn <strong style={{ color: 'var(--fp-ink)' }}>{need} total stars</strong> to unlock this pack.
+            <br/>
+            <span style={{ fontSize: 12, color: 'var(--fp-ink-4)', display: 'block', marginTop: 4 }}>
+              You have {totalStars} / {need} so far.
+            </span>
+            {/* Progress bar */}
+            <div style={{ height: 5, background: 'var(--fp-line)', borderRadius: 3, margin: '12px auto 0', maxWidth: 200 }}>
+              <div style={{
+                height: '100%', borderRadius: 3, background: 'var(--fp-accent)',
+                width: `${Math.min(100, (totalStars / need) * 100)}%`,
+                transition: 'width .4s ease',
+              }}/>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onClose} style={{
+            flex: 1, height: 50, borderRadius: 14,
+            background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+            color: 'var(--fp-ink)', fontSize: 14, fontWeight: 500,
+          }}>
+            Got it
+          </button>
+          <button onClick={onClose} style={{
+            flex: 2, height: 50, borderRadius: 14,
+            background: 'var(--fp-ink)', color: 'var(--fp-bg)',
+            fontSize: 14, fontWeight: 500,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+          }}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"
+                fill="currentColor"/>
+            </svg>
+            Upgrade to Premium
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

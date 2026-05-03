@@ -1,6 +1,6 @@
 // Function Plane — App shell & router
 
-const { useState, useEffect, useMemo } = React;
+const { useState, useEffect, useRef, useMemo } = React;
 
 const SETTINGS_DEFAULTS = {
   theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
@@ -38,10 +38,15 @@ function App() {
 
   const [nav, setNav] = useState({ route: 'main', pack: null, levelIndex: 0 });
 
+  // Achievement toast queue
+  const [toastQueue, setToastQueue] = useState([]);
+  const achInitRef    = useRef(false);
+  const prevUnlockedRef = useRef(new Set());
+
   const updateSetting = (key, value) =>
     setSettings(s => ({ ...s, [key]: value }));
 
-  // Apply theme and density to the DOM
+  // Apply theme to the DOM
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;
   }, [settings.theme]);
@@ -56,7 +61,25 @@ function App() {
     localStorage.setItem('fp-progress', JSON.stringify(progress));
   }, [progress]);
 
-  const totalStars = useMemo(() => totalStarsAll(progress), [progress]);
+  // Achievement unlock detection
+  useEffect(() => {
+    if (typeof ACH_LIST === 'undefined') return;
+    if (!achInitRef.current) {
+      // Seed on first render so we don't toast pre-existing achievements
+      ACH_LIST.filter(a => a.check(progress)).forEach(a => prevUnlockedRef.current.add(a.id));
+      achInitRef.current = true;
+      return;
+    }
+    const newlyUnlocked = ACH_LIST.filter(
+      a => a.check(progress) && !prevUnlockedRef.current.has(a.id)
+    );
+    newlyUnlocked.forEach(a => {
+      prevUnlockedRef.current.add(a.id);
+      setToastQueue(q => [...q, { id: a.id, name: a.name }]);
+    });
+  }, [progress]);
+
+  const totalStars    = useMemo(() => totalStarsAll(progress), [progress]);
   const continuePoint = useMemo(() => findContinuePoint(progress), [progress]);
 
   const navigate = (route, extra = {}) =>
@@ -125,7 +148,6 @@ function App() {
           const best  = [...pd.best];
           stars[levelIndex] = Math.max(stars[levelIndex] ?? -1, rating);
           best[levelIndex]  = best[levelIndex] == null ? score : Math.min(best[levelIndex], score);
-          // Unlock next level if it was null
           if (levelIndex + 1 < 10 && stars[levelIndex + 1] === null) {
             stars[levelIndex + 1] = -1;
           }
@@ -149,6 +171,7 @@ function App() {
           levelIndex={levelIndex}
           progress={progress}
           density={settings.density}
+          settings={settings}
           onBack={() => navigate('levels', { pack })}
           onComplete={handleComplete}
           onNext={handleNext}
@@ -181,9 +204,64 @@ function App() {
     <div
       data-theme={settings.theme}
       data-density={settings.density}
-      style={{ width: '100%', height: '100%' }}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
     >
       {renderScreen()}
+
+      {/* Achievement toast */}
+      {toastQueue.length > 0 && (
+        <AchievementToast
+          key={toastQueue[0].id}
+          name={toastQueue[0].name}
+          onDone={() => setToastQueue(q => q.slice(1))}
+        />
+      )}
+    </div>
+  );
+}
+
+function AchievementToast({ name, onDone }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const t1 = setTimeout(() => setShow(true), 60);
+    const t2 = setTimeout(() => setShow(false), 2800);
+    const t3 = setTimeout(onDone, 3400);
+    return () => [t1, t2, t3].forEach(clearTimeout);
+  }, []);
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: 0, left: 0, right: 0,
+      display: 'flex', justifyContent: 'center',
+      zIndex: 9999,
+      pointerEvents: 'none',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: 'var(--fp-ink)', color: 'var(--fp-accent-ink)',
+        padding: '10px 16px 10px 12px',
+        borderRadius: '0 0 18px 18px',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
+        transform: show ? 'translateY(0)' : 'translateY(-100%)',
+        transition: 'transform 0.38s cubic-bezier(.22,.68,0,1.2)',
+        marginTop: 'env(safe-area-inset-top, 0px)',
+        maxWidth: 300,
+      }}>
+        <div style={{
+          width: 30, height: 30, borderRadius: 8, flex: '0 0 30px',
+          background: 'rgba(255,255,255,0.12)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Icon.Trophy size={16} c="currentColor"/>
+        </div>
+        <div>
+          <div style={{ fontSize: 9.5, opacity: 0.65, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 1 }}>
+            Achievement unlocked
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em' }}>{name}</div>
+        </div>
+      </div>
     </div>
   );
 }

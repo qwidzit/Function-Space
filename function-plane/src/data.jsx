@@ -15,18 +15,17 @@ const ROMAN_PACKS = ROMAN.map((r, i) => ({
 }));
 
 const SPECIAL_PACKS = [
-  { id: 's-lin',  numeral: 'ƒ', name: 'Linear',       kind: 'lin',  type: 'special', tag: 'mx + b' },
-  { id: 's-qua',  numeral: 'ƒ', name: 'Quadratic',    kind: 'qua',  type: 'special', tag: 'ax² + bx + c' },
-  { id: 's-trig', numeral: 'ƒ', name: 'Trigonometry', kind: 'trig', type: 'special', tag: 'sin · cos · tan' },
-  { id: 's-exp',  numeral: 'ƒ', name: 'Exponential',  kind: 'exp',  type: 'special', tag: 'aᵇˣ · log' },
+  { id: 's-lin',  numeral: 'ƒ', name: 'Linear',       kind: 'lin',  type: 'special', tag: 'mx + b',         allowedClass: 'linear' },
+  { id: 's-qua',  numeral: 'ƒ', name: 'Quadratic',    kind: 'qua',  type: 'special', tag: 'ax² + bx + c',   allowedClass: 'quadratic' },
+  { id: 's-trig', numeral: 'ƒ', name: 'Trigonometry', kind: 'trig', type: 'special', tag: 'sin · cos · tan', allowedClass: 'trig' },
+  { id: 's-exp',  numeral: 'ƒ', name: 'Exponential',  kind: 'exp',  type: 'special', tag: 'aᵇˣ · log',      allowedClass: 'exp' },
 ];
 
-// ─── Level data ──────────────────────────────────────────────
-// Each entry: { ball: {x,y}, stars: [{x,y},...] }
-// Key format: `${packId}-${levelIndex}` (0-based)
+// Stars needed to unlock each special pack
+const SPECIAL_UNLOCK_STARS = { 's-lin': 0, 's-qua': 50, 's-trig': 100, 's-exp': 150 };
 
+// ─── Level data ──────────────────────────────────────────────
 const LEVELS = {
-  // Default placeholder used for any level not yet defined
   _default: {
     ball: { x: -3, y: 5 },
     stars: [{ x: -1, y: 2 }, { x: 1, y: 0 }, { x: 3, y: -2 }],
@@ -61,7 +60,9 @@ function freshProgress() {
   [...ROMAN_PACKS, ...SPECIAL_PACKS].forEach(p => {
     out[p.id] = { stars: Array(10).fill(null), best: Array(10).fill(null) };
   });
-  out['r-I'].stars = Array(10).fill(-1);
+  // Always unlock Pack I and Linear themed pack
+  out['r-I'].stars  = Array(10).fill(-1);
+  out['s-lin'].stars = Array(10).fill(-1);
   return out;
 }
 
@@ -105,6 +106,33 @@ function packIsComplete(progress, packId) {
 function totalStarsAll(progress) {
   return Object.keys(progress).reduce((a, k) => a + packTotalStars(progress, k), 0);
 }
+
+// Returns { locked: bool, reason: 'stars'|'prev_pack', need?: number, have?: number, prevPackName?: string }
+function computePackLocked(progress, pack) {
+  const id = pack.id;
+
+  // Special packs — star threshold
+  if (id in SPECIAL_UNLOCK_STARS) {
+    const need = SPECIAL_UNLOCK_STARS[id];
+    if (need === 0) return { locked: false };
+    const have = totalStarsAll(progress);
+    if (have < need) return { locked: true, reason: 'stars', need, have };
+    return { locked: false };
+  }
+
+  // Roman packs
+  const romanIdx = ROMAN_PACKS.findIndex(p => p.id === id);
+  if (romanIdx <= 0) return { locked: false }; // r-I always unlocked
+
+  const prevPack = ROMAN_PACKS[romanIdx - 1];
+  const prevStars = packTotalStars(progress, prevPack.id);
+  const need = 29; // 95% of 30
+  if (prevStars < need) {
+    return { locked: true, reason: 'prev_pack', need, have: prevStars, prevPackName: prevPack.name };
+  }
+  return { locked: false };
+}
+
 function findContinuePoint(progress) {
   for (const pack of [...ROMAN_PACKS, ...SPECIAL_PACKS]) {
     if (packIsLocked(progress, pack.id)) continue;
@@ -127,9 +155,11 @@ const LEVEL_GRAPH = ['I','II','III','IV','V','VI','VII','VIII','IX','X','lin','q
 
 Object.assign(window, {
   ROMAN_PACKS, SPECIAL_PACKS, LEVELS,
+  SPECIAL_UNLOCK_STARS,
   getLevelData,
   freshProgress, buildProgress,
   packTotalStars, packIsLocked, packIsComplete, totalStarsAll,
+  computePackLocked,
   findContinuePoint,
   LEVEL_NAMES, LEVEL_GRAPH,
 });

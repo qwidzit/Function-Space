@@ -46,10 +46,10 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
             onChange={v => updateSetting('density', v)} />
         </SGroup>
 
-        <SSection>Sound & haptics</SSection>
+        <SSection>Sound &amp; haptics</SSection>
         <SGroup>
-          <TogRow label="Sound effects" value={settings.sound} onChange={v => updateSetting('sound', v)} />
-          <TogRow label="Music"         value={settings.music} onChange={v => updateSetting('music', v)} />
+          <TogRow label="Sound effects" value={settings.sound}   onChange={v => updateSetting('sound', v)} />
+          <TogRow label="Music"         value={settings.music}   onChange={v => updateSetting('music', v)} />
           <TogRow label="Haptics"       value={settings.haptics} onChange={v => updateSetting('haptics', v)} />
           <SliderRow label="Volume" value={settings.volume} onChange={v => updateSetting('volume', v)} />
         </SGroup>
@@ -84,7 +84,7 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
           textAlign: 'center', fontSize: 10.5, color: 'var(--fp-ink-4)',
           letterSpacing: '0.06em', textTransform: 'uppercase', paddingTop: 18,
         }}>
-          v 1.0 · build 1
+          v 1.0 · build 2
         </div>
       </div>
     </div>
@@ -177,13 +177,10 @@ function SegRow({ label, value, options, onChange }) {
 function SliderRow({ label, value, onChange }) {
   return (
     <div style={sRowBase()}>
-      <div style={{ flex: '0 0 110px', fontSize: 13.5, color: 'var(--fp-ink)' }}>{label}</div>
+      <div style={{ fontSize: 13.5, color: 'var(--fp-ink)', flex: '0 0 auto' }}>{label}</div>
       <input type="range" min="0" max="100" value={value}
         onChange={e => onChange(Number(e.target.value))}
-        style={{ flex: 1, accentColor: 'var(--fp-ink)' }}/>
-      <span className="fp-mono" style={{ flex: '0 0 32px', textAlign: 'right', fontSize: 11.5, color: 'var(--fp-ink-3)' }}>
-        {value}
-      </span>
+        style={{ flex: 1, accentColor: 'var(--fp-ink)', marginLeft: 8 }}/>
     </div>
   );
 }

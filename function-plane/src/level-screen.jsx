@@ -11,7 +11,36 @@ const BALL_R     = 0.22;
 const FALL_LIMIT = -13;
 const TIME_LIMIT = 28;
 
-function computeScore(eqsUsed) { return eqsUsed * 100 + 20; }
+// ─── Complexity scoring ───────────────────────────────────────
+function classifyEquation(expr) {
+  if (!expr || !expr.trim()) return 0;
+  const e = expr.toLowerCase().replace(/\s+/g, '');
+  const hasInvTrig = /\b(asin|acos|atan)\(/.test(e);
+  const hasExp  = /\bexp\(/.test(e) || /[^a-z]e\^/.test(e) || /^e\^/.test(e);
+  const hasLog  = /\b(log|ln)\(/.test(e);
+  const hasTrig = /\b(sin|cos|tan)\(/.test(e);
+  const transcendental = hasInvTrig || hasExp || hasLog || hasTrig;
+  let maxDeg = 0;
+  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)/g))
+    maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2]));
+  if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
+  let score;
+  if (hasInvTrig)     score = 40;
+  else if (hasExp)    score = 35;
+  else if (hasLog)    score = 30;
+  else if (hasTrig)   score = 25;
+  else                score = Math.max(1, maxDeg) * 10;
+  if (transcendental && maxDeg >= 2) score = Math.round(score * 1.5);
+  return score;
+}
+
+function computeScore(equations) {
+  const active = equations.filter(e => e.fn);
+  if (active.length === 0) return 0;
+  const complexity = active.reduce((s, e) => s + classifyEquation(e.expr), 0);
+  return complexity + active.length * 20 + 20;
+}
+
 function starRating(eqsUsed, score, eqGoal, scoreGoal) {
   if (eqsUsed <= eqGoal)    return 3;
   if (score   <= scoreGoal) return 2;
@@ -39,7 +68,6 @@ function parseEquation(raw) {
   const eqIdx = eq.indexOf('=');
 
   if (eqIdx < 0) {
-    // No '=': treat as y = expr
     try {
       const fn = new Function('x', `try{return(${normExpr(eq)});}catch(e){return NaN;}`);
       fn(0);
@@ -50,7 +78,6 @@ function parseEquation(raw) {
   const lhs = eq.slice(0, eqIdx).trim();
   const rhs = eq.slice(eqIdx + 1).trim();
 
-  // Explicit: y = expr (no y on right side — we don't check, just compile)
   if (lhs === 'y') {
     try {
       const fn = new Function('x', `try{return(${normExpr(rhs)});}catch(e){return NaN;}`);
@@ -59,7 +86,6 @@ function parseEquation(raw) {
     } catch { return { fn: null, isImplicit: false }; }
   }
 
-  // General implicit: LHS - RHS = 0
   const nL = normExpr(lhs), nR = normExpr(rhs);
   try {
     const fn = new Function('x','y',
@@ -92,32 +118,22 @@ function marchingSquares(fn, xMin, xMax, yMin, yMax, res, m2p) {
       const vbl = vals[j*W+i], vbr = vals[j*W+i+1];
       const vtr = vals[(j+1)*W+i+1], vtl = vals[(j+1)*W+i];
       if (isNaN(vbl)||isNaN(vbr)||isNaN(vtr)||isNaN(vtl)) continue;
-
       const cx0 = xMin+i*dx, cx1 = xMin+(i+1)*dx;
       const cy0 = yMin+j*dy, cy1 = yMin+(j+1)*dy;
-
       const sbl=vbl>0?1:0, sbr=vbr>0?1:0, str=vtr>0?1:0, stl=vtl>0?1:0;
-      const crossB = sbl!==sbr, crossR = sbr!==str;
-      const crossT = stl!==str, crossL = sbl!==stl;
-
+      const crossB=sbl!==sbr, crossR=sbr!==str, crossT=stl!==str, crossL=sbl!==stl;
       const pts = [];
-      if (crossB) { const p=m2p(lerp(cx0,cx1,vbl,vbr),cy0); pts.push(p); }
-      if (crossR) { const p=m2p(cx1,lerp(cy0,cy1,vbr,vtr)); pts.push(p); }
-      if (crossT) { const p=m2p(lerp(cx0,cx1,vtl,vtr),cy1); pts.push(p); }
-      if (crossL) { const p=m2p(cx0,lerp(cy0,cy1,vbl,vtl)); pts.push(p); }
-
-      const seg = (a,b) =>
-        `M${a.x.toFixed(1)},${a.y.toFixed(1)}L${b.x.toFixed(1)},${b.y.toFixed(1)}`;
-
-      if (pts.length === 2) {
+      if (crossB) pts.push(m2p(lerp(cx0,cx1,vbl,vbr),cy0));
+      if (crossR) pts.push(m2p(cx1,lerp(cy0,cy1,vbr,vtr)));
+      if (crossT) pts.push(m2p(lerp(cx0,cx1,vtl,vtr),cy1));
+      if (crossL) pts.push(m2p(cx0,lerp(cy0,cy1,vbl,vtl)));
+      const seg=(a,b)=>`M${a.x.toFixed(1)},${a.y.toFixed(1)}L${b.x.toFixed(1)},${b.y.toFixed(1)}`;
+      if (pts.length===2) {
         parts.push(seg(pts[0],pts[1]));
-      } else if (pts.length === 4) {
-        const vctr = (vbl+vbr+vtr+vtl)/4;
-        if ((vctr>0) === (sbl>0)) {
-          parts.push(seg(pts[0],pts[3])); parts.push(seg(pts[1],pts[2]));
-        } else {
-          parts.push(seg(pts[0],pts[1])); parts.push(seg(pts[2],pts[3]));
-        }
+      } else if (pts.length===4) {
+        const vctr=(vbl+vbr+vtr+vtl)/4;
+        if ((vctr>0)===(sbl>0)) { parts.push(seg(pts[0],pts[3])); parts.push(seg(pts[1],pts[2])); }
+        else                    { parts.push(seg(pts[0],pts[1])); parts.push(seg(pts[2],pts[3])); }
       }
     }
   }
@@ -158,6 +174,7 @@ function physicsStep(ph, explFns, dt) {
         ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
         ph.vx *= PHYSICS_CONFIG.energyRetention;
         ph.vy *= PHYSICS_CONFIG.energyRetention;
+        ph.bounced = true;
       }
     }
   }
@@ -166,6 +183,7 @@ function physicsStep(ph, explFns, dt) {
     if (!ph.stars[i].collected &&
         Math.hypot(ph.x-ph.stars[i].x, ph.y-ph.stars[i].y) < STAR_R+BALL_R) {
       ph.stars[i] = { ...ph.stars[i], collected: true };
+      ph.justCollected = true;
     }
   }
 }
@@ -173,8 +191,10 @@ function physicsStep(ph, explFns, dt) {
 // ─── Coordinate plane ─────────────────────────────────────────
 function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
   const [view, setView] = useSL({ cx:0, cy:0, scale:40 });
-  const svgRef  = useRL(null);
-  const dragRef = useRL(null);
+  const svgRef    = useRL(null);
+  const ptrsRef   = useRL({});
+  const panRef    = useRL(null);  // { sx, sy, cx, cy }
+  const pinchRef  = useRL(null);  // { dist, midPx, midPy, scale, cx, cy }
 
   const m2p = (mx,my) => ({
     x: width/2  + (mx-view.cx)*view.scale,
@@ -196,19 +216,58 @@ function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
   }, [view.scale]);
 
   const onPointerDown = e => {
-    if (e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { px:e.clientX, py:e.clientY, cx:view.cx, cy:view.cy, id:e.pointerId };
+    ptrsRef.current[e.pointerId] = { x: e.clientX, y: e.clientY };
+    const ids = Object.keys(ptrsRef.current);
+    if (ids.length === 1) {
+      panRef.current  = { sx: e.clientX, sy: e.clientY, cx: view.cx, cy: view.cy };
+      pinchRef.current = null;
+    } else if (ids.length === 2) {
+      const [p1, p2] = Object.values(ptrsRef.current);
+      const dist = Math.hypot(p1.x-p2.x, p1.y-p2.y);
+      const rect  = svgRef.current?.getBoundingClientRect();
+      const midPx = (p1.x+p2.x)/2 - (rect?.left ?? 0);
+      const midPy = (p1.y+p2.y)/2 - (rect?.top  ?? 0);
+      pinchRef.current = { dist, midPx, midPy, scale: view.scale, cx: view.cx, cy: view.cy };
+      panRef.current   = null;
+    }
   };
+
   const onPointerMove = e => {
-    if (!dragRef.current || dragRef.current.id!==e.pointerId) return;
-    const dx = e.clientX-dragRef.current.px, dy = e.clientY-dragRef.current.py;
-    setView(v => ({ ...v,
-      cx: dragRef.current.cx - dx/v.scale,
-      cy: dragRef.current.cy + dy/v.scale,
-    }));
+    if (!ptrsRef.current[e.pointerId]) return;
+    ptrsRef.current[e.pointerId] = { x: e.clientX, y: e.clientY };
+    const n = Object.keys(ptrsRef.current).length;
+
+    if (n === 1 && panRef.current) {
+      const { sx, sy, cx, cy } = panRef.current;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      setView(v => ({ ...v, cx: cx - dx/v.scale, cy: cy + dy/v.scale }));
+    } else if (n === 2 && pinchRef.current) {
+      const [p1, p2] = Object.values(ptrsRef.current);
+      const dist = Math.hypot(p1.x-p2.x, p1.y-p2.y);
+      const ps   = pinchRef.current;
+      const f    = dist / ps.dist;
+      const s    = Math.max(8, Math.min(400, ps.scale * f));
+      const { midPx, midPy } = ps;
+      const mx = ps.cx + (midPx - width/2)  / ps.scale;
+      const my = ps.cy - (midPy - height/2) / ps.scale;
+      setView({ cx: mx - (midPx - width/2)/s, cy: my + (midPy - height/2)/s, scale: s });
+    }
   };
-  const onPointerUp = () => { dragRef.current = null; };
+
+  const onPointerUp = e => {
+    delete ptrsRef.current[e.pointerId];
+    const remaining = Object.entries(ptrsRef.current);
+    if (remaining.length === 0) {
+      panRef.current   = null;
+      pinchRef.current = null;
+    } else if (remaining.length === 1) {
+      const [,p] = remaining[0];
+      panRef.current   = { sx: p.x, sy: p.y, cx: view.cx, cy: view.cy };
+      pinchRef.current = null;
+    }
+  };
+
   const onWheel = e => {
     e.preventDefault();
     const rect = svgRef.current.getBoundingClientRect();
@@ -257,23 +316,19 @@ function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
       {gridStep>=1?Math.round(y):y.toFixed(1)}</text>);
   }
 
-  // Equation curves
   const eqPaths = equations.filter(eq => eq.fn && eq.visible).map(eq => {
     if (eq.isImplicit) {
-      // Implicit curve via marching squares
       const implFn = eq.domain
         ? (x,y) => inDomain(x,eq.domain) ? eq.fn(x,y) : NaN
         : eq.fn;
-      const d = marchingSquares(implFn,
-        range.xMin, range.xMax, range.yMin, range.yMax, 60, m2p);
+      const d = marchingSquares(implFn, range.xMin, range.xMax, range.yMin, range.yMax, 60, m2p);
       return <path key={eq.id} d={d} stroke={eq.color} strokeWidth={2.2}
         fill="none" strokeLinecap="round" strokeLinejoin="round"/>;
     }
-    // Explicit curve
     let d = '', pen = false, prevY = NaN;
     const step = 2/view.scale;
     for (let x = range.xMin; x <= range.xMax; x += step) {
-      if (!inDomain(x, eq.domain)) { pen = false; prevY = NaN; continue; }
+      if (!inDomain(x, eq.domain)) { pen=false; prevY=NaN; continue; }
       const y = eq.fn(x);
       if (!isFinite(y) || Math.abs(y-prevY)*view.scale>900) { pen=false; prevY=NaN; continue; }
       const p = m2p(x,y);
@@ -284,7 +339,6 @@ function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
       fill="none" strokeLinecap="round" strokeLinejoin="round"/>;
   });
 
-  // Stars — disappear on collect
   const starsEl = simStars.map((s,i) => {
     if (s.collected) return null;
     const p = m2p(s.x,s.y);
@@ -299,6 +353,7 @@ function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
 
   const bp = m2p(ballPos.x, ballPos.y);
   const sp = m2p(startPos.x, startPos.y);
+  const br = Math.max(4, BALL_R * view.scale);
 
   return (
     <div style={{
@@ -307,6 +362,7 @@ function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
       transform:'translateZ(0)', WebkitTransform:'translateZ(0)',
     }} onWheel={onWheel}>
       <svg ref={svgRef} width={width} height={height}
+        overflow="hidden"
         style={{ display:'block', cursor:'grab', userSelect:'none' }}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
@@ -320,13 +376,13 @@ function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
           fill="var(--lv-tick)" textAnchor="end">0</text>
         {tickLabels}
         {eqPaths}
-        <circle cx={sp.x} cy={sp.y} r={8}
+        <circle cx={sp.x} cy={sp.y} r={br}
           fill="none" stroke="var(--lv-ball)" strokeWidth={1.5}
           strokeDasharray="3 2" opacity={0.35}/>
         {starsEl}
         <g transform={`translate(${bp.x},${bp.y})`}>
-          <circle r={8} fill="var(--lv-ball)" stroke="var(--lv-ball-stroke)" strokeWidth={1.5}/>
-          <circle r={2.5} cx={-2.5} cy={-2.5} fill="var(--lv-ball-shine)"/>
+          <circle r={br} fill="var(--lv-ball)" stroke="var(--lv-ball-stroke)" strokeWidth={1.5}/>
+          <circle r={br * 0.31} cx={-br * 0.31} cy={-br * 0.31} fill="var(--lv-ball-shine)"/>
         </g>
       </svg>
       <div style={{
@@ -410,7 +466,7 @@ function HudChip({ label, value }) {
 // ─── Domain editor ────────────────────────────────────────────
 function DomainEditor({ domain, onChange }) {
   const segs = domain || [];
-  const add = () => onChange([...segs, { xMin:-5, xMax:5 }]);
+  const add    = () => onChange([...segs, { xMin:-5, xMax:5 }]);
   const remove = i => onChange(segs.filter((_,j)=>j!==i));
   const update = (i, k, v) => onChange(segs.map((s,j)=>j===i?{...s,[k]:parseFloat(v)||0}:s));
 
@@ -466,7 +522,6 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
   return (
     <div style={{ borderTop:'1px solid var(--lv-line)' }}>
       <div style={{ display:'flex', alignItems:'stretch' }}>
-        {/* Colour dot */}
         <button onPointerDown={e=>{e.preventDefault(); !disabled && onChange({ visible:!eq.visible });}}
           style={{ width:36, flex:'0 0 36px', display:'flex', alignItems:'center', justifyContent:'center' }}>
           <span style={{
@@ -479,7 +534,6 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
           }}>{idx+1}</span>
         </button>
 
-        {/* Expression input */}
         <input
           ref={inputRef}
           value={eq.expr}
@@ -496,7 +550,6 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
             padding:'10px 0',
           }}/>
 
-        {/* Domain toggle */}
         <button onPointerDown={e=>{e.preventDefault(); setDomOpen(o=>!o);}}
           title="Restrict domain"
           style={{
@@ -508,7 +561,6 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
           </svg>
         </button>
 
-        {/* Remove */}
         <button onPointerDown={e=>{e.preventDefault(); !disabled && onRemove();}}
           style={{ width:34, flex:'0 0 34px', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--fp-ink-3)' }}>
           <svg width={13} height={13} viewBox="0 0 24 24" fill="none">
@@ -530,12 +582,14 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
 // ─── Equations panel ──────────────────────────────────────────
 function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled }) {
   const activeInputRef = useRL(null);
-  const [activeId, setActiveId] = useSL(null);
-  const kbOpen = activeId !== null && !disabled;
+  const [activeId,  setActiveId]  = useSL(null);
+  const [kbVisible, setKbVisible] = useSL(true);
+  const kbOpen = activeId !== null && !disabled && kbVisible;
 
   const activate = (id, ref) => {
     activeInputRef.current = ref.current;
     setActiveId(id);
+    setKbVisible(true);
   };
   const dismiss = () => { setActiveId(null); activeInputRef.current?.blur(); };
 
@@ -580,7 +634,23 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled 
             {equations.filter(e=>e.expr.trim()).length}
           </span>
         </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+          {activeId !== null && !disabled && (
+            <button onPointerDown={e=>{e.preventDefault(); setKbVisible(v=>!v);}}
+              title={kbVisible ? 'Hide keyboard' : 'Show keyboard'}
+              style={{
+                width:28, height:28, borderRadius:7,
+                display:'flex', alignItems:'center', justifyContent:'center',
+                background: kbVisible ? 'var(--fp-surface-2)' : 'transparent',
+                color: kbVisible ? 'var(--fp-ink-2)' : 'var(--fp-ink-4)',
+              }}>
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+                <rect x={2} y={5} width={20} height={14} rx={2} stroke="currentColor" strokeWidth={1.6}/>
+                <path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M8 17h8"
+                  stroke="currentColor" strokeWidth={1.6} strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
           {kbOpen && (
             <button onPointerDown={e=>{e.preventDefault(); dismiss();}}
               style={{ fontSize:12, color:'var(--fp-accent)', fontWeight:500 }}>
@@ -619,22 +689,29 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled 
 }
 
 // ─── Level screen ─────────────────────────────────────────────
-function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, density='comfortable' }) {
+function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, density='comfortable', settings }) {
   const levelData  = getLevelData(pack.id, levelIndex);
   const totalStars = levelData.stars.length;
   const scoreGoal  = levelData.scoreGoal ?? 320;
   const eqGoal     = levelData.eqGoal    ?? 1;
 
+  const soundEnabled   = settings?.sound   !== false;
+  const hapticsEnabled = settings?.haptics !== false;
+  const volume         = (settings?.volume ?? 70) / 100;
+
+  const sfx = (name) => { if (soundEnabled && window.FP_AUDIO) window.FP_AUDIO[name]?.(volume); };
+  const hap = (ms)   => { if (hapticsEnabled && window.FP_HAPTIC) window.FP_HAPTIC(ms); };
+
   const [equations, setEquations] = useSL([
     { id:1, expr:'', fn:null, isImplicit:false, color:EQ_COLORS[0], visible:true, domain:null },
   ]);
   const [panelOpen, setPanelOpen] = useSL(true);
-  const [running, setRunning] = useSL(false);
-  const [ballPos, setBallPos] = useSL({ ...levelData.ball });
-  const [simStars, setSimStars] = useSL(levelData.stars.map(s=>({...s,collected:false})));
+  const [running,   setRunning]   = useSL(false);
+  const [ballPos,   setBallPos]   = useSL({ ...levelData.ball });
+  const [simStars,  setSimStars]  = useSL(levelData.stars.map(s=>({...s,collected:false})));
   const [collectedCount, setCollectedCount] = useSL(0);
-  const [completed, setCompleted] = useSL(null);
-  const [missMsg, setMissMsg] = useSL(false);
+  const [completed,  setCompleted]  = useSL(null);
+  const [missMsg,    setMissMsg]    = useSL(false);
 
   const physRef      = useRL(null);
   const animRef      = useRL(null);
@@ -644,6 +721,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   const best      = progress?.[pack.id]?.best?.[levelIndex]  ?? null;
   const prevStars = progress?.[pack.id]?.stars?.[levelIndex] ?? -1;
   const eqsUsed   = equations.filter(e=>e.fn).length;
+  const liveScore = computeScore(equations);
 
   const resetSim = () => {
     setBallPos({ ...levelData.ball });
@@ -661,12 +739,13 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
     physRef.current = {
       x:levelData.ball.x, y:levelData.ball.y, vx:0, vy:0,
       stars:levelData.stars.map(s=>({...s,collected:false})),
-      startTs:null,
+      startTs:null, bounced:false, justCollected:false,
     };
     setSimStars(levelData.stars.map(s=>({...s,collected:false})));
     setCollectedCount(0);
     setCompleted(null);
     setRunning(true);
+    hap(15);
   };
 
   const handleReplay = () => {
@@ -687,7 +766,13 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         .filter(e => e.fn && e.visible && !e.isImplicit)
         .map(e => ({ fn:e.fn, domain:e.domain }));
 
+      ph.bounced = false;
+      ph.justCollected = false;
+
       for (let s=0; s<SUB_STEPS; s++) physicsStep(ph, explFns, dt);
+
+      if (ph.bounced) { sfx('bounce'); }
+      if (ph.justCollected) { sfx('collectStar'); hap(12); }
 
       setBallPos({ x:ph.x, y:ph.y });
       const collected = ph.stars.filter(s=>s.collected).length;
@@ -702,15 +787,17 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         if (collected < totalStars) {
           resetSim();
           setMissMsg(true);
+          sfx('levelFail'); hap(30);
           setTimeout(()=>setMissMsg(false), 1800);
           return;
         }
 
         const eqsN   = equationsRef.current.filter(e=>e.fn).length;
-        const sc     = computeScore(eqsN);
+        const sc     = computeScore(equationsRef.current);
         const rating = starRating(eqsN, sc, eqGoal, scoreGoal);
         const isNew  = best == null || sc < best;
 
+        sfx('levelComplete'); hap(20);
         setCompleted({ score:sc, starsRating:rating, prevBest:best, isNewBest:isNew });
         onComplete(rating, sc);
         return;
@@ -727,7 +814,6 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       width:'100%', height:'100%', display:'flex', flexDirection:'column',
       position:'relative',
     }}>
-      {/* Safe-area spacer for punch-hole cameras */}
       <div style={{ height:'env(safe-area-inset-top, 0px)', flex:'0 0 auto', background:'var(--lv-bg)' }}/>
 
       {/* Top bar */}
@@ -766,7 +852,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       <div style={{ padding:'0 14px 6px', flex:'0 0 auto', background:'var(--lv-bg)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
           <HudChip label="Best"  value={best==null?'—':best}/>
-          <HudChip label="Eqs"   value={eqsUsed}/>
+          <HudChip label="Score" value={eqsUsed>0?liveScore:'—'}/>
           <HudChip label="Stars" value={`${collectedCount}/${totalStars}`}/>
           <button onClick={handlePlay} style={{
             marginLeft:'auto',
@@ -831,3 +917,5 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
 
 window.LevelScreen = LevelScreen;
 window.parseEquation = parseEquation;
+window.classifyEquation = classifyEquation;
+window.computeScore = computeScore;
