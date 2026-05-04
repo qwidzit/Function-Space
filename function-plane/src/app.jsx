@@ -31,6 +31,18 @@ function App() {
   const [account, setAccount] = useState(() => FP_AUTH.getActive());
   useEffect(() => FP_AUTH.subscribe(() => setAccount(FP_AUTH.getActive())), []);
 
+  // Bump on every config-override change so screens re-render with new pack/level data
+  const [overridesRev, setOverridesRev] = useState(0);
+  const reloadOverrides = async () => {
+    if (!FP_AUTH.fetchOverrides) return;
+    try {
+      const ov = await FP_AUTH.fetchOverrides();
+      applyOverrides(ov);
+      setOverridesRev(r => r + 1);
+    } catch (e) { console.warn('overrides:', e); }
+  };
+  useEffect(() => { reloadOverrides(); }, []);
+
   const [progress, setProgress] = useState(() => {
     const fromAuth = FP_AUTH.getActiveProgress();
     if (fromAuth) return fromAuth;
@@ -150,19 +162,24 @@ function App() {
 
     if (route === 'level') {
       const { pack, levelIndex } = nav;
-      const handleComplete = (rating, score) => {
+      const handleComplete = (rating, score, time) => {
         setProgress(prev => {
-          const next = { ...prev };
-          const pd   = next[pack.id] = { ...prev[pack.id] };
+          const next  = { ...prev };
+          const pd    = next[pack.id] = { ...prev[pack.id] };
           const stars = [...pd.stars];
           const best  = [...pd.best];
+          const bestTime = pd.bestTime ? [...pd.bestTime] : Array(10).fill(null);
           stars[levelIndex] = Math.max(stars[levelIndex] ?? -1, rating);
-          best[levelIndex]  = best[levelIndex] == null ? score : Math.min(best[levelIndex], score);
+          best[levelIndex]  = best[levelIndex]     == null ? score : Math.min(best[levelIndex], score);
+          if (time != null) {
+            bestTime[levelIndex] = bestTime[levelIndex] == null ? time : Math.min(bestTime[levelIndex], time);
+          }
           if (levelIndex + 1 < 10 && stars[levelIndex + 1] === null) {
             stars[levelIndex + 1] = -1;
           }
-          pd.stars = stars;
-          pd.best  = best;
+          pd.stars    = stars;
+          pd.best     = best;
+          pd.bestTime = bestTime;
           return next;
         });
       };
@@ -198,7 +215,11 @@ function App() {
     }
 
     if (route === 'account') {
-      return <AccountScreen onBack={() => navigate('main')} density={settings.density} account={account} progress={progress}/>;
+      return <AccountScreen onBack={() => navigate('main')} density={settings.density} account={account} progress={progress} onAdmin={() => navigate('admin')}/>;
+    }
+
+    if (route === 'admin') {
+      return <AdminScreen onBack={() => navigate('account')} density={settings.density} onChanged={reloadOverrides}/>;
     }
 
     return (
@@ -327,6 +348,7 @@ function mount() {
     typeof HowToPlayScreen === 'undefined' ||
     typeof AchievementsScreen === 'undefined' ||
     typeof AccountScreen === 'undefined' ||
+    typeof AdminScreen === 'undefined' ||
     typeof MathKeyboard === 'undefined' ||
     typeof freshProgress === 'undefined' ||
     typeof Icon === 'undefined' ||

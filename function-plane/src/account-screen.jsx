@@ -2,7 +2,7 @@
 
 const { useState: useACS, useEffect: useACSEffect } = React;
 
-function AccountScreen({ onBack, density = 'comfortable', account, progress }) {
+function AccountScreen({ onBack, density = 'comfortable', account, progress, onAdmin }) {
   const [view, setView] = useACS('main'); // 'main' | 'signin' | 'register' | 'reset' | 'premium'
   const padX = density === 'compact' ? 22 : 26;
 
@@ -17,7 +17,7 @@ function AccountScreen({ onBack, density = 'comfortable', account, progress }) {
 
   return account
     ? <SignedInView account={account} progress={progress} onBack={onBack} padX={padX}
-        onPremium={() => setView('premium')}/>
+        onPremium={() => setView('premium')} onAdmin={onAdmin}/>
     : <GuestView onBack={onBack} padX={padX}
         onSignIn={() => setView('signin')} onRegister={() => setView('register')}
         onPremium={() => setView('premium')}/>;
@@ -135,8 +135,9 @@ function GuestView({ onBack, padX, onSignIn, onRegister, onPremium }) {
 
 // ─── Signed-in view ────────────────────────────────────────────────────────
 
-function SignedInView({ account, progress, onBack, padX, onPremium }) {
-  const stars = FP_AUTH.totalStarsFromProgress(progress);
+function SignedInView({ account, progress, onBack, padX, onPremium, onAdmin }) {
+  const stars   = FP_AUTH.totalStarsFromProgress(progress);
+  const isAdmin = FP_AUTH.isAdmin && FP_AUTH.isAdmin();
 
   const doSignOut = async () => {
     if (confirm('Sign out of your account?')) await FP_AUTH.signOut();
@@ -191,6 +192,22 @@ function SignedInView({ account, progress, onBack, padX, onPremium }) {
 
         <div style={{ height:1, background:'var(--fp-line)', marginBottom:18 }}/>
 
+        {isAdmin && (
+          <button onClick={onAdmin} style={{
+            width:'100%', height:52, borderRadius:14, marginBottom:14,
+            background:'var(--fp-ink)', color:'var(--fp-bg)',
+            fontSize:14, fontWeight:500,
+            display:'flex', alignItems:'center', justifyContent:'space-between',
+            padding:'0 16px',
+          }}>
+            <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontSize:14 }}>⚙️</span>
+              Admin panel
+            </span>
+            <Icon.Chevron dir="right" size={14} c="currentColor"/>
+          </button>
+        )}
+
         <PremiumCard onPremium={onPremium}/>
 
         <button onClick={doSignOut} style={{ width:'100%', height:48, borderRadius:14, background:'transparent', border:'1px solid var(--fp-line)', color:'var(--fp-ink-2)', fontSize:13.5, fontWeight:500 }}>
@@ -244,7 +261,29 @@ function RegisterView({ onBack, padX, onSuccess }) {
   const [msg,   setMsg]   = useACS({ text:'', ok:false });
   const [busy,  setBusy]  = useACS(false);
 
+  // Name availability state: 'idle' | 'checking' | 'free' | 'taken' | 'invalid'
+  const [nameStatus, setNameStatus] = useACS({ state:'idle', reason:'' });
+
+  // Debounced availability check
+  useACSEffect(() => {
+    const trimmed = name.trim();
+    if (!trimmed) { setNameStatus({ state:'idle', reason:'' }); return; }
+    setNameStatus({ state:'checking', reason:'' });
+    const id = setTimeout(async () => {
+      try {
+        const r = await FP_AUTH.checkNameAvailable(trimmed);
+        setNameStatus(r.available
+          ? { state:'free', reason:'' }
+          : { state: trimmed.length < 2 ? 'invalid' : 'taken', reason: r.reason || 'Taken' });
+      } catch { setNameStatus({ state:'idle', reason:'' }); }
+    }, 350);
+    return () => clearTimeout(id);
+  }, [name]);
+
+  const canSubmit = !busy && nameStatus.state === 'free' && email.includes('@') && pass.length >= 6;
+
   const submit = async () => {
+    if (!canSubmit) return;
     setMsg({ text:'', ok:false }); setBusy(true);
     try   { await FP_AUTH.register({ name, email, password: pass }); onSuccess(); }
     catch (e) { setMsg({ text: e.message, ok: false }); }
@@ -255,11 +294,40 @@ function RegisterView({ onBack, padX, onSuccess }) {
     <ScreenFrame title="Create account" onBack={onBack} padX={padX}>
       <div style={{ padding:'24px 0' }}>
         <StatusLine msg={msg.text} ok={msg.ok}/>
-        <AuthField label="Display name" type="text"     value={name}  onChange={setName}  placeholder="Your name" autoFocus/>
-        <AuthField label="Email"        type="email"    value={email} onChange={setEmail} placeholder="you@example.com"/>
-        <AuthField label="Password"     type="password" value={pass}  onChange={setPass}  placeholder="At least 6 characters"/>
 
-        <button onClick={submit} disabled={busy} style={{ width:'100%', height:52, borderRadius:15, marginTop:4, background:'var(--fp-accent)', color:'var(--fp-accent-ink)', fontSize:15, fontWeight:500, opacity:busy?0.6:1 }}>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:11.5, color:'var(--fp-ink-3)', marginBottom:6, letterSpacing:'0.03em', textTransform:'uppercase' }}>
+            Display name
+          </div>
+          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" autoFocus
+            style={{
+              width:'100%', height:48, borderRadius:12, boxSizing:'border-box', padding:'0 14px', fontSize:15,
+              background:'var(--fp-surface)',
+              border: `1px solid ${nameStatus.state==='taken' || nameStatus.state==='invalid' ? '#e34'
+                                  : nameStatus.state==='free' ? 'var(--fp-accent)'
+                                  : 'var(--fp-line)'}`,
+              color:'var(--fp-ink)', outline:'none',
+            }}/>
+          <div style={{ minHeight:16, marginTop:6, fontSize:11.5,
+            color: nameStatus.state==='free'    ? 'var(--fp-accent)'
+                 : nameStatus.state==='taken' || nameStatus.state==='invalid' ? '#e34'
+                 : 'var(--fp-ink-3)',
+          }}>
+            {nameStatus.state==='checking' && 'Checking availability…'}
+            {nameStatus.state==='free'     && '✓ Name is available'}
+            {nameStatus.state==='taken'    && (nameStatus.reason || 'That name is taken')}
+            {nameStatus.state==='invalid'  && (nameStatus.reason || 'Invalid name')}
+          </div>
+        </div>
+
+        <AuthField label="Email"    type="email"    value={email} onChange={setEmail} placeholder="you@example.com"/>
+        <AuthField label="Password" type="password" value={pass}  onChange={setPass}  placeholder="At least 6 characters"/>
+
+        <button onClick={submit} disabled={!canSubmit} style={{
+          width:'100%', height:52, borderRadius:15, marginTop:4,
+          background:'var(--fp-accent)', color:'var(--fp-accent-ink)',
+          fontSize:15, fontWeight:500, opacity: canSubmit ? 1 : 0.5,
+        }}>
           {busy ? 'Creating…' : 'Create account'}
         </button>
 
