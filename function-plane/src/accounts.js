@@ -21,6 +21,14 @@
   const subscribers = new Set();
   const notify = () => subscribers.forEach(fn => { try { fn(); } catch {} });
 
+  // Sync errors are surfaced via a CustomEvent that the App listens for and
+  // shows in a toast — silent failures are exactly what made the last round
+  // of "saves don't work" bugs hard to track down.
+  function _emitSyncError(msg) {
+    try { window.dispatchEvent(new CustomEvent('fp-sync-error', { detail: msg })); }
+    catch {}
+  }
+
   const readJSON  = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
   const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
   const progressKey = id  => id ? PROGRESS_PREFIX + id : GUEST_KEY;
@@ -199,19 +207,23 @@
     try {
       const totalStars = _countStars(progress);
 
-      await Promise.all([
+      const [pRes, profRes] = await Promise.all([
         _sb.from('progress').upsert({ user_id: userId, data: progress, updated_at: new Date().toISOString() }),
         _sb.from('profiles').update({ total_stars: totalStars }).eq('id', userId),
       ]);
+      if (pRes.error)    console.warn('FP_AUTH: progress upsert error', pRes.error);
+      if (profRes.error) console.warn('FP_AUTH: profile update error',  profRes.error);
 
       // Upsert individual completed level rows (drives per-level leaderboards)
-      const rows = [];
+      // Some installs may not have run the best_time migration yet — if the
+      // upsert fails because that column is missing, retry without it.
+      const rowsFull = [];
       for (const [packId, pd] of Object.entries(progress)) {
         (pd?.best || []).forEach((score, levelIndex) => {
           const stars = pd?.stars?.[levelIndex] ?? -1;
           if (score != null && stars >= 1) {
             const t = pd?.bestTime?.[levelIndex];
-            rows.push({
+            rowsFull.push({
               user_id: userId, pack_id: packId, level_index: levelIndex,
               best_score: score, stars,
               best_time: t == null ? null : t,
@@ -219,11 +231,23 @@
           }
         });
       }
-      if (rows.length) {
-        const { error: upErr } = await _sb.from('level_scores').upsert(rows, {
+      if (rowsFull.length) {
+        let { error: upErr } = await _sb.from('level_scores').upsert(rowsFull, {
           onConflict: 'user_id,pack_id,level_index', ignoreDuplicates: false,
         });
-        if (upErr) console.warn('FP_AUTH: level_scores upsert error', upErr);
+        if (upErr && /best_time/i.test(upErr.message || '')) {
+          // Retry without the new column for backwards compatibility
+          const rowsLegacy = rowsFull.map(({ best_time, ...rest }) => rest);
+          const r2 = await _sb.from('level_scores').upsert(rowsLegacy, {
+            onConflict: 'user_id,pack_id,level_index', ignoreDuplicates: false,
+          });
+          upErr = r2.error;
+          if (!upErr) console.warn('FP_AUTH: level_scores upserted without best_time (run the migration to enable time leaderboard)');
+        }
+        if (upErr) {
+          console.warn('FP_AUTH: level_scores upsert error', upErr);
+          _emitSyncError('Could not save your score: ' + (upErr.message || 'unknown error'));
+        }
       }
 
       if (_currentUser) _currentUser.totalStars = totalStars;
@@ -358,14 +382,30 @@
     if (!_sb) throw new Error('Supabase not configured');
     const row = { pack_id: packId, ...patch, updated_at: new Date().toISOString() };
     const { error } = await _sb.from('pack_overrides').upsert(row, { onConflict: 'pack_id' });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.warn('FP_AUTH: pack_overrides upsert error', error);
+      const hint = /not exist|relation/i.test(error.message)
+        ? ' (run the admin migration SQL in Supabase first)'
+        : /policy|permission|rls/i.test(error.message)
+          ? ' (your account name must be exactly "Test Account" with no trailing spaces)'
+          : '';
+      throw new Error((error.message || 'Save failed') + hint);
+    }
   }
 
   async function saveLevelOverride(packId, levelIndex, patch) {
     if (!_sb) throw new Error('Supabase not configured');
     const row = { pack_id: packId, level_index: levelIndex, ...patch, updated_at: new Date().toISOString() };
     const { error } = await _sb.from('level_overrides').upsert(row, { onConflict: 'pack_id,level_index' });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.warn('FP_AUTH: level_overrides upsert error', error);
+      const hint = /not exist|relation/i.test(error.message)
+        ? ' (run the admin migration SQL in Supabase first)'
+        : /policy|permission|rls/i.test(error.message)
+          ? ' (your account name must be exactly "Test Account" with no trailing spaces)'
+          : '';
+      throw new Error((error.message || 'Save failed') + hint);
+    }
   }
 
   function isAdmin() {

@@ -148,16 +148,28 @@ function inDomain(x, domain) {
 
 // ─── Physics step ─────────────────────────────────────────────
 function physicsStep(ph, explFns, dt) {
+  // Remember y from last step so we can detect actual downward crossings
+  // rather than teleporting onto whatever function happens to be highest.
+  const yPrev = ph.y;
+
   ph.vy -= GRAVITY * dt;
   ph.x  += ph.vx * dt;
   ph.y  += ph.vy * dt;
 
+  // A function counts as "hit" only if:
+  //   • the ball was at-or-above it before this step (yPrev - BALL_R >= cy − ε), AND
+  //   • the ball is now penetrating it       (ph.y - BALL_R <= cy)
+  // Among multiple valid candidates, pick the highest one (the topmost
+  // surface the ball just landed on).
   let hitFn = null, hitY = -Infinity;
+  const EPS = 1e-3;
   for (const { fn, domain } of explFns) {
     if (!inDomain(ph.x, domain)) continue;
     const cy = fn(ph.x);
     if (!isFinite(cy) || isNaN(cy)) continue;
-    if (ph.y - BALL_R <= cy && cy > hitY) { hitY = cy; hitFn = fn; }
+    const wasAbove = (yPrev - BALL_R) >= (cy - EPS);
+    const nowInside = (ph.y - BALL_R) <= cy;
+    if (wasAbove && nowInside && cy > hitY) { hitY = cy; hitFn = fn; }
   }
 
   if (hitFn !== null) {
