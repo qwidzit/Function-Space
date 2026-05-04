@@ -40,21 +40,21 @@ function AdminScreen({ onBack, density = 'comfortable', onChanged }) {
           Roman packs
         </div>
         {ROMAN_PACKS.map(p => (
-          <PackRow key={p.id} pack={p} onClick={() => { setPack(p); setView('pack'); }}/>
+          <AdminPackRow key={p.id} pack={p} onClick={() => { setPack(p); setView('pack'); }}/>
         ))}
 
         <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fp-ink-3)', marginBottom: 8, marginTop: 18 }}>
           Themed packs
         </div>
         {SPECIAL_PACKS.map(p => (
-          <PackRow key={p.id} pack={p} onClick={() => { setPack(p); setView('pack'); }}/>
+          <AdminPackRow key={p.id} pack={p} onClick={() => { setPack(p); setView('pack'); }}/>
         ))}
       </div>
     </ScreenFrameAS>
   );
 }
 
-function PackRow({ pack, onClick }) {
+function AdminPackRow({ pack, onClick }) {
   return (
     <button onClick={onClick} style={{
       width: '100%', display: 'flex', alignItems: 'center', gap: 12,
