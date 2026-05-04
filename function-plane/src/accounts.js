@@ -1,301 +1,307 @@
-// Function Plane — Local accounts + friend codes (FP_AUTH)
+// Function Plane — FP_AUTH backed by Supabase
 //
-// Storage model (all in localStorage):
-//   fp-users         { [id]: { id, name, email, salt, hash, avatar, friendCode, createdAt, progress } }
-//   fp-active-user   string | null
-//   fp-friends       { [ownerId]: [{ id, name, avatar, stars, perLevel:{[packId]:[best,...]}, importedAt }] }
-//   fp-progress      legacy/guest progress (kept as a fallback for not-signed-in play)
+// Provides: register / signIn / signOut / getActive (sync, cached) /
+//           getActiveProgress (sync, localStorage cache) /
+//           updateActiveProgress (sync write + async Supabase upload) /
+//           buildLeaderboard (async) / subscribe
 //
-// "Auth" here is local-only — accounts live on this device. Passwords are
-// salted+SHA-256 hashed but the threat model is "casual shared-device privacy",
-// not "secure remote auth". The module is designed so the surface (register /
-// signIn / setActive / updateActiveProgress / friend codes) can later be backed
-// by a real server with no caller changes.
+// If SUPABASE_URL / SUPABASE_ANON_KEY are not filled in yet the module runs
+// in guest mode — all local features work, no network calls are made.
 
 (() => {
-  const USERS_KEY    = 'fp-users';
-  const ACTIVE_KEY   = 'fp-active-user';
-  const FRIENDS_KEY  = 'fp-friends';
-  const PROGRESS_KEY = 'fp-progress';
-
   const AVATARS = ['🟢','🟣','🟠','🔵','🟡','🔴','⚫','⚪','🟤'];
+  const PROGRESS_PREFIX = 'fp-progress-';
+  const GUEST_KEY       = 'fp-progress';
+
+  // Module-level cache — keeps getActive() / getActiveProgress() synchronous
+  let _sb          = null;   // supabase client
+  let _currentUser = null;   // { id, email, name, avatar, totalStars } | null
+  let _syncTimer   = null;
 
   const subscribers = new Set();
   const notify = () => subscribers.forEach(fn => { try { fn(); } catch {} });
 
-  // ── helpers ──
-  const readJSON = (k, d) => {
-    try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; }
-  };
+  const readJSON  = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
   const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+  const progressKey = id  => id ? PROGRESS_PREFIX + id : GUEST_KEY;
 
-  const randomId = () =>
-    'u_' + Array.from(crypto.getRandomValues(new Uint8Array(8)))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
-  const randomSalt = () =>
-    Array.from(crypto.getRandomValues(new Uint8Array(8)))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
-  const friendCodeFor = id => {
-    // 9-char base32-ish code from the id; stable per account
-    let h = 0;
-    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let out = '';
-    for (let i = 0; i < 9; i++) {
-      out += alphabet[(h >>> (i * 3)) & 31];
-      if (i === 2 || i === 5) out += '-';
+  // ── Initialise ────────────────────────────────────────────────────────────
+
+  async function _init() {
+    const url = window.SUPABASE_URL  || '';
+    const key = window.SUPABASE_ANON_KEY || '';
+    if (!url || url.includes('YOUR-PROJECT') || !key || key.includes('YOUR-ANON')) {
+      console.info('FP_AUTH: Supabase not configured — guest mode');
+      return;
+    }
+
+    _sb = window.supabase.createClient(url, key, {
+      auth: { persistSession: true, autoRefreshToken: true },
+    });
+
+    // Restore existing session (e.g. returning visitor on same device)
+    const { data: { session } } = await _sb.auth.getSession();
+    if (session) {
+      _currentUser = await _fetchProfile(session.user);
+      await _syncProgressDown(session.user.id, true);
+    }
+    notify();
+
+    // Keep cache in sync when auth state changes (sign-in / sign-out / token refresh)
+    _sb.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        _currentUser = await _fetchProfile(session.user);
+        if (event === 'SIGNED_IN') await _syncProgressDown(session.user.id, false);
+      } else {
+        _currentUser = null;
+      }
+      notify();
+    });
+  }
+
+  async function _fetchProfile(user) {
+    if (!_sb) return null;
+    const { data } = await _sb.from('profiles')
+      .select('name, avatar, total_stars').eq('id', user.id).single();
+    return {
+      id:         user.id,
+      email:      user.email,
+      name:       data?.name  || user.user_metadata?.name   || 'Player',
+      avatar:     data?.avatar || user.user_metadata?.avatar || '🟢',
+      totalStars: data?.total_stars || 0,
+    };
+  }
+
+  // Download remote progress, merge with local, push merged back up
+  async function _syncProgressDown(userId, skipUpload = false) {
+    if (!_sb) return;
+    const { data } = await _sb.from('progress').select('data').eq('user_id', userId).single();
+    const remote   = data?.data || null;
+    const local    = readJSON(progressKey(userId), null);
+    const merged   = _mergeProgress(remote, local);
+    writeJSON(progressKey(userId), merged);
+    if (!skipUpload && merged) _scheduleUpload(userId, merged);
+  }
+
+  // Merge two progress snapshots, taking the best of each level
+  function _mergeProgress(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const out = {};
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const k of keys) {
+      const pa = a[k] || { stars: [], best: [] };
+      const pb = b[k] || { stars: [], best: [] };
+      out[k] = {
+        stars: Array.from({ length: 10 }, (_, i) => {
+          const sa = pa.stars?.[i] ?? null, sb = pb.stars?.[i] ?? null;
+          if (sa === null && sb === null) return null;
+          return Math.max(sa ?? -1, sb ?? -1);
+        }),
+        best: Array.from({ length: 10 }, (_, i) => {
+          const ba = pa.best?.[i] ?? null, bb = pb.best?.[i] ?? null;
+          if (ba === null && bb === null) return null;
+          if (ba === null) return bb;
+          if (bb === null) return ba;
+          return Math.min(ba, bb); // lower score = better (fewer equations used)
+        }),
+      };
     }
     return out;
-  };
-
-  async function hashPassword(pass, salt) {
-    const data = new TextEncoder().encode(salt + ':' + pass);
-    const buf  = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(buf))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // ── store accessors ──
-  const getUsers   = () => readJSON(USERS_KEY, {});
-  const setUsers   = u => { writeJSON(USERS_KEY, u); notify(); };
-  const getActiveId = () => localStorage.getItem(ACTIVE_KEY);
-  const setActiveId = id => {
-    if (id) localStorage.setItem(ACTIVE_KEY, id);
-    else    localStorage.removeItem(ACTIVE_KEY);
-    notify();
-  };
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
-  function getActive() {
-    const id = getActiveId();
-    if (!id) return null;
-    const u = getUsers()[id];
-    return u ? publicUser(u) : null;
-  }
-
-  function publicUser(u) {
-    return { id: u.id, name: u.name, email: u.email, avatar: u.avatar,
-             friendCode: u.friendCode, createdAt: u.createdAt };
-  }
-
-  function listAccounts() {
-    return Object.values(getUsers()).map(publicUser)
-      .sort((a, b) => a.createdAt - b.createdAt);
-  }
-
-  function findByEmail(email) {
-    const e = (email || '').trim().toLowerCase();
-    return Object.values(getUsers()).find(u => u.email === e) || null;
-  }
-
-  // ── auth ──
   async function register({ name, email, password }) {
     name  = (name  || '').trim();
     email = (email || '').trim().toLowerCase();
-    if (!name)                   throw new Error('Display name is required');
-    if (!email.includes('@'))    throw new Error('Enter a valid email');
-    if ((password || '').length < 6) throw new Error('Password must be at least 6 characters');
-    if (findByEmail(email))      throw new Error('An account with that email already exists');
+    if (!name)                    throw new Error('Display name is required');
+    if (!email.includes('@'))     throw new Error('Enter a valid email address');
+    if ((password||'').length < 6) throw new Error('Password must be at least 6 characters');
+    if (!_sb)                     throw new Error('Supabase is not configured yet');
 
-    const salt = randomSalt();
-    const hash = await hashPassword(password, salt);
-    const id   = randomId();
-    const user = {
-      id, name, email, salt, hash,
-      avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)],
-      friendCode: friendCodeFor(id),
-      createdAt: Date.now(),
-      progress: readJSON(PROGRESS_KEY, null) || (window.freshProgress ? window.freshProgress() : {}),
-    };
-    const users = getUsers();
-    users[id] = user;
-    setUsers(users);
-    setActiveId(id);
-    return publicUser(user);
+    const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)];
+    const { data, error } = await _sb.auth.signUp({
+      email, password,
+      options: { data: { name, avatar } },
+    });
+    if (error) throw new Error(error.message);
+
+    // Migrate any guest progress to the new account
+    const guestProgress = readJSON(GUEST_KEY, null);
+    if (guestProgress && data.user) {
+      writeJSON(progressKey(data.user.id), guestProgress);
+    }
+    return { id: data.user?.id, name, email, avatar };
   }
 
   async function signIn({ email, password }) {
-    const u = findByEmail(email);
-    if (!u) throw new Error('No account found with that email');
-    const hash = await hashPassword(password, u.salt);
-    if (hash !== u.hash) throw new Error('Incorrect password');
-    setActiveId(u.id);
-    return publicUser(u);
+    if (!_sb) throw new Error('Supabase is not configured yet');
+    const { error } = await _sb.auth.signInWithPassword({
+      email: (email || '').trim().toLowerCase(), password,
+    });
+    if (error) throw new Error(
+      error.message.toLowerCase().includes('invalid') ? 'Incorrect email or password' : error.message
+    );
+    return _currentUser;
   }
 
-  function signOut() { setActiveId(null); }
-
-  function setActive(id) {
-    if (!getUsers()[id]) throw new Error('Account not found');
-    setActiveId(id);
+  async function signOut() {
+    if (_sb) await _sb.auth.signOut();
   }
 
-  function deleteAccount(id) {
-    const users = getUsers();
-    delete users[id];
-    setUsers(users);
-    const friends = readJSON(FRIENDS_KEY, {});
-    delete friends[id];
-    writeJSON(FRIENDS_KEY, friends);
-    if (getActiveId() === id) setActiveId(null);
+  async function resetPassword(email) {
+    if (!_sb) throw new Error('Supabase is not configured yet');
+    const { error } = await _sb.auth.resetPasswordForEmail(
+      (email || '').trim().toLowerCase(),
+      { redirectTo: window.location.origin },
+    );
+    if (error) throw new Error(error.message);
   }
 
-  function updateAccount(id, patch) {
-    const users = getUsers();
-    if (!users[id]) return;
-    users[id] = { ...users[id], ...patch };
-    setUsers(users);
-  }
+  function getActive() { return _currentUser; }
 
-  // ── progress ──
+  // ── Progress (sync interface, async Supabase background sync) ─────────────
+
   function getActiveProgress() {
-    const id = getActiveId();
-    if (!id) return readJSON(PROGRESS_KEY, null);
-    return getUsers()[id]?.progress || null;
+    return readJSON(progressKey(_currentUser?.id), null);
   }
 
   function updateActiveProgress(progress) {
-    const id = getActiveId();
-    if (!id) {
-      writeJSON(PROGRESS_KEY, progress);
-      return;
-    }
-    const users = getUsers();
-    if (users[id]) {
-      users[id].progress = progress;
-      writeJSON(USERS_KEY, users); // no notify — avoid re-render loops
+    writeJSON(progressKey(_currentUser?.id), progress);
+    if (_sb && _currentUser) _scheduleUpload(_currentUser.id, progress);
+  }
+
+  function _scheduleUpload(userId, progress) {
+    clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(() => _uploadProgress(userId, progress), 1500);
+  }
+
+  async function _uploadProgress(userId, progress) {
+    if (!_sb) return;
+    try {
+      const totalStars = _countStars(progress);
+
+      await Promise.all([
+        _sb.from('progress').upsert({ user_id: userId, data: progress, updated_at: new Date().toISOString() }),
+        _sb.from('profiles').update({ total_stars: totalStars }).eq('id', userId),
+      ]);
+
+      // Upsert individual completed level rows (drives per-level leaderboards)
+      const rows = [];
+      for (const [packId, pd] of Object.entries(progress)) {
+        (pd?.best || []).forEach((score, levelIndex) => {
+          const stars = pd?.stars?.[levelIndex] ?? -1;
+          if (score != null && stars >= 1) {
+            rows.push({ user_id: userId, pack_id: packId, level_index: levelIndex, best_score: score, stars });
+          }
+        });
+      }
+      if (rows.length) {
+        await _sb.from('level_scores').upsert(rows, {
+          onConflict: 'user_id,pack_id,level_index', ignoreDuplicates: false,
+        });
+      }
+
+      if (_currentUser) _currentUser.totalStars = totalStars;
+    } catch (e) {
+      console.warn('FP_AUTH: upload error', e);
     }
   }
 
-  // ── friends / share codes ──
-  // A share code is a base64url-encoded JSON snapshot of a player's public
-  // scoreboard. Friends are stored per-owner so each local account has its own
-  // friend list.
-
-  function topPerLevel(progress) {
-    const out = {};
-    Object.keys(progress || {}).forEach(packId => {
-      out[packId] = (progress[packId]?.best || []).map(b => b == null ? null : b);
-    });
-    return out;
-  }
-
-  function totalStarsFromProgress(p) {
-    if (!p) return 0;
-    return Object.values(p).reduce(
+  function _countStars(progress) {
+    if (!progress) return 0;
+    return Object.values(progress).reduce(
       (a, pd) => a + (pd?.stars || []).reduce((b, s) => b + (s > 0 ? s : 0), 0), 0,
     );
   }
 
-  function b64urlEncode(s) {
-    return btoa(unescape(encodeURIComponent(s)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-  function b64urlDecode(s) {
-    s = s.replace(/-/g, '+').replace(/_/g, '/');
-    while (s.length % 4) s += '=';
-    return decodeURIComponent(escape(atob(s)));
-  }
+  // ── Leaderboards (async) ──────────────────────────────────────────────────
+  //
+  // metric = 'stars'  → global ranking by total stars (for Achievements screen)
+  // metric = 'level'  → ranking for one level by best_score ascending (for Level Complete)
 
-  function generateShareCode() {
-    const u = getUsers()[getActiveId()];
-    if (!u) throw new Error('Sign in to share your scores');
-    const payload = {
-      v: 1, id: u.id, name: u.name, avatar: u.avatar,
-      stars: totalStarsFromProgress(u.progress),
-      perLevel: topPerLevel(u.progress),
-      stamp: Date.now(),
-    };
-    return 'FP1.' + b64urlEncode(JSON.stringify(payload));
-  }
-
-  function parseShareCode(code) {
-    code = (code || '').trim();
-    if (code.startsWith('FP1.')) code = code.slice(4);
-    let payload;
-    try { payload = JSON.parse(b64urlDecode(code)); }
-    catch { throw new Error('Invalid share code'); }
-    if (!payload || payload.v !== 1 || !payload.id || !payload.name)
-      throw new Error('Invalid share code');
-    return payload;
-  }
-
-  function importShareCode(code) {
-    const ownerId = getActiveId();
-    if (!ownerId) throw new Error('Sign in to add friends');
-    const payload = parseShareCode(code);
-    if (payload.id === ownerId) throw new Error("That's your own code");
-    const friends = readJSON(FRIENDS_KEY, {});
-    const list = friends[ownerId] || [];
-    const idx  = list.findIndex(f => f.id === payload.id);
-    const entry = {
-      id: payload.id, name: payload.name, avatar: payload.avatar || '🟢',
-      stars: payload.stars || 0, perLevel: payload.perLevel || {},
-      importedAt: Date.now(),
-    };
-    if (idx >= 0) list[idx] = entry;
-    else          list.push(entry);
-    friends[ownerId] = list;
-    writeJSON(FRIENDS_KEY, friends);
-    notify();
-    return entry;
-  }
-
-  function getFriends() {
-    const ownerId = getActiveId();
-    if (!ownerId) return [];
-    const friends = readJSON(FRIENDS_KEY, {});
-    return friends[ownerId] || [];
-  }
-
-  function removeFriend(friendId) {
-    const ownerId = getActiveId();
-    if (!ownerId) return;
-    const friends = readJSON(FRIENDS_KEY, {});
-    friends[ownerId] = (friends[ownerId] || []).filter(f => f.id !== friendId);
-    writeJSON(FRIENDS_KEY, friends);
-    notify();
-  }
-
-  // ── leaderboard composition ──
-  // Builds a sorted list combining the active player + their friends.
-  // metric = 'stars' (totals) or 'level' (per-level best, lower = better)
-  function buildLeaderboard({ metric = 'stars', packId = null, levelIndex = null } = {}) {
-    const me = getActive();
-    const friends = getFriends();
-    const meProgress = getActiveProgress() || {};
-    const rows = [];
+  async function buildLeaderboard({ metric = 'stars', packId = null, levelIndex = null } = {}) {
+    if (!_sb) return [];
 
     if (metric === 'stars') {
-      if (me) rows.push({ id: me.id, name: me.name, avatar: me.avatar, stars: totalStarsFromProgress(meProgress), self: true });
-      friends.forEach(f => rows.push({ id: f.id, name: f.name, avatar: f.avatar, stars: f.stars || 0, self: false }));
-      rows.sort((a, b) => b.stars - a.stars);
-    } else if (metric === 'level' && packId != null && levelIndex != null) {
-      const meBest = meProgress[packId]?.best?.[levelIndex];
-      if (me && meBest != null)
-        rows.push({ id: me.id, name: me.name, avatar: me.avatar, score: meBest, self: true });
-      friends.forEach(f => {
-        const s = f.perLevel?.[packId]?.[levelIndex];
-        if (s != null) rows.push({ id: f.id, name: f.name, avatar: f.avatar, score: s, self: false });
-      });
-      rows.sort((a, b) => a.score - b.score);
+      const { data, error } = await _sb
+        .from('profiles')
+        .select('id, name, avatar, total_stars')
+        .order('total_stars', { ascending: false })
+        .limit(25);
+      if (error || !data) return [];
+
+      const rows = data.map((r, i) => ({
+        id: r.id, name: r.name, avatar: r.avatar,
+        stars: r.total_stars, rank: i + 1,
+        self: r.id === _currentUser?.id,
+      }));
+
+      // Append current user below top-25 if not already in list
+      if (_currentUser && !rows.find(r => r.self)) {
+        rows.push({
+          id: _currentUser.id, name: _currentUser.name, avatar: _currentUser.avatar,
+          stars: _countStars(getActiveProgress()), rank: null, self: true,
+        });
+      }
+      return rows;
     }
-    rows.forEach((r, i) => r.rank = i + 1);
-    return rows;
+
+    if (metric === 'level' && packId != null && levelIndex != null) {
+      const { data, error } = await _sb
+        .from('level_scores')
+        .select('user_id, best_score, profiles ( name, avatar )')
+        .eq('pack_id', packId)
+        .eq('level_index', levelIndex)
+        .order('best_score', { ascending: true })  // lower score = more elegant solution
+        .limit(25);
+      if (error || !data) return [];
+
+      const rows = data.map((r, i) => ({
+        id: r.user_id,
+        name:   r.profiles?.name   || 'Player',
+        avatar: r.profiles?.avatar || '🟢',
+        score: r.best_score, rank: i + 1,
+        self: r.user_id === _currentUser?.id,
+      }));
+
+      // Append self below top-25 if not present (using local cached score)
+      if (_currentUser && !rows.find(r => r.self)) {
+        const myScore = getActiveProgress()?.[packId]?.best?.[levelIndex];
+        if (myScore != null) {
+          rows.push({
+            id: _currentUser.id, name: _currentUser.name, avatar: _currentUser.avatar,
+            score: myScore, rank: null, self: true,
+          });
+        }
+      }
+      return rows;
+    }
+
+    return [];
   }
+
+  // ── Misc ──────────────────────────────────────────────────────────────────
+
+  function totalStarsFromProgress(p) { return _countStars(p); }
 
   function subscribe(fn) {
     subscribers.add(fn);
     return () => subscribers.delete(fn);
   }
 
+  // ── Export ────────────────────────────────────────────────────────────────
+
   window.FP_AUTH = {
-    listAccounts, getActive, setActive, signOut,
-    register, signIn, deleteAccount, updateAccount,
+    getActive, signOut,
+    register, signIn, resetPassword,
     getActiveProgress, updateActiveProgress,
-    generateShareCode, importShareCode, parseShareCode,
-    getFriends, removeFriend,
     buildLeaderboard, totalStarsFromProgress,
     subscribe,
     AVATARS,
   };
+
+  // Kick off async init (errors are caught internally; app always loads)
+  _init().catch(e => console.warn('FP_AUTH init:', e));
 })();

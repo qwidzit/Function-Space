@@ -202,8 +202,17 @@ function AchievementsScreen({ onBack, progress, density = 'comfortable' }) {
 }
 
 function LeaderboardTab({ padX, myStars }) {
-  const signedIn = !!(window.FP_AUTH && FP_AUTH.getActive());
-  const rows = window.FP_AUTH ? FP_AUTH.buildLeaderboard({ metric: 'stars' }) : [];
+  const { useState: useL, useEffect: useLE } = React;
+  const [rows, setRows]       = useL(null);   // null = loading
+  const [signedIn, setSignedIn] = useL(!!(window.FP_AUTH && FP_AUTH.getActive()));
+
+  useLE(() => {
+    setSignedIn(!!(window.FP_AUTH && FP_AUTH.getActive()));
+    if (!window.FP_AUTH) { setRows([]); return; }
+    FP_AUTH.buildLeaderboard({ metric: 'stars' })
+      .then(setRows)
+      .catch(() => setRows([]));
+  }, []);
 
   return (
     <div className="fp-scroll" style={{
@@ -221,15 +230,21 @@ function LeaderboardTab({ padX, myStars }) {
           <div style={{ width: 48, textAlign: 'right' }}>Stars</div>
         </div>
 
-        {rows.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: '24px 0', lineHeight: 1.6 }}>
-            {signedIn
-              ? <>No friends yet.<br/>Add some from the Account screen to see them ranked here.</>
-              : <>Sign in and add friends from the Account screen<br/>to compare star totals.</>}
+        {rows === null && (
+          <div style={{ textAlign: 'center', color: 'var(--fp-ink-4)', fontSize: 12, padding: '28px 0' }}>
+            Loading…
           </div>
         )}
 
-        {rows.map((row, i) => (
+        {rows !== null && rows.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: '24px 0', lineHeight: 1.6 }}>
+            {signedIn
+              ? 'No scores yet — be the first to register!'
+              : 'Sign in to appear on the global leaderboard.'}
+          </div>
+        )}
+
+        {rows !== null && rows.map((row, i) => (
           <div key={row.id} style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: row.self ? '11px 12px' : '11px 0',
@@ -237,7 +252,7 @@ function LeaderboardTab({ padX, myStars }) {
             borderRadius: row.self ? 12 : 0,
             background: row.self ? 'var(--fp-surface)' : 'transparent',
             border: row.self ? '1.5px solid var(--fp-ink)' : 'none',
-            borderBottom: !row.self && i < rows.length - 1 ? '1px solid var(--fp-line)' : (row.self ? '1.5px solid var(--fp-ink)' : 'none'),
+            borderBottom: !row.self && i < (rows||[]).length - 1 ? '1px solid var(--fp-line)' : (row.self ? '1.5px solid var(--fp-ink)' : 'none'),
           }}>
             <div style={{
               width: 32, flex: '0 0 32px',
@@ -246,7 +261,7 @@ function LeaderboardTab({ padX, myStars }) {
               fontWeight: row.rank <= 3 ? 700 : 400,
               color: row.rank === 1 ? '#d4a017' : row.rank === 2 ? '#9ba0a6' : row.rank === 3 ? '#b87333' : 'var(--fp-ink-4)',
             }}>
-              {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : row.rank}
+              {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : (row.rank ?? '—')}
             </div>
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{

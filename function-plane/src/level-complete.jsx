@@ -2,27 +2,6 @@
 
 const { useState: useLCState, useEffect: useLCEffect } = React;
 
-// Per-level leaderboard from FP_AUTH (you + your friends, lower score = better).
-function buildLevelBoard(pack, levelIndex, currentScore) {
-  const rows = (window.FP_AUTH && pack)
-    ? FP_AUTH.buildLeaderboard({ metric: 'level', packId: pack.id, levelIndex })
-    : [];
-  // If currently signed-in user has a fresh score this run that beats their stored
-  // best (or no stored entry yet), make sure the displayed "self" row reflects it.
-  const me = window.FP_AUTH ? FP_AUTH.getActive() : null;
-  const selfRow = rows.find(r => r.self);
-  if (me) {
-    if (selfRow) {
-      if (currentScore != null && currentScore < selfRow.score) selfRow.score = currentScore;
-    } else if (currentScore != null) {
-      rows.push({ id: me.id, name: me.name, avatar: me.avatar, score: currentScore, self: true });
-    }
-  }
-  rows.sort((a, b) => a.score - b.score);
-  rows.forEach((r, i) => r.rank = i + 1);
-  return rows;
-}
-
 function LevelCompletePopup({
   pack, levelIndex,
   starsRating, score,
@@ -31,17 +10,43 @@ function LevelCompletePopup({
 }) {
   const [revealed, setRevealed] = useLCState(false);
   const [tab, setTab] = useLCState('score'); // 'score' | 'leaderboard'
+  const [board, setBoard]           = useLCState(null);  // null = not yet loaded
+  const [boardLoading, setBoardLoading] = useLCState(false);
 
   useLCEffect(() => {
     const t = setTimeout(() => setRevealed(true), 80);
     return () => clearTimeout(t);
   }, []);
 
+  // Load leaderboard async when the tab is first opened
+  useLCEffect(() => {
+    if (tab !== 'leaderboard' || board !== null) return;
+    setBoardLoading(true);
+    const packId = pack?.id;
+    FP_AUTH.buildLeaderboard({ metric: 'level', packId, levelIndex })
+      .then(rows => {
+        // If this run's score beats or fills in the self row, update it in place
+        const me = FP_AUTH.getActive();
+        if (me) {
+          const selfRow = rows.find(r => r.self);
+          if (selfRow) {
+            if (score != null && score < selfRow.score) selfRow.score = score;
+          } else if (score != null) {
+            rows.push({ id: me.id, name: me.name, avatar: me.avatar, score, rank: null, self: true });
+          }
+          rows.sort((a, b) => a.score - b.score);
+          rows.forEach((r, i) => r.rank = i + 1);
+        }
+        setBoard(rows);
+      })
+      .catch(() => setBoard([]))
+      .finally(() => setBoardLoading(false));
+  }, [tab]);
+
   const packLabel = pack
     ? (pack.type === 'roman' ? `Pack ${pack.numeral}` : pack.name)
     : 'Pack I';
 
-  const leaderboard = buildLevelBoard(pack, levelIndex, score);
   const signedIn = !!(window.FP_AUTH && FP_AUTH.getActive());
 
   return (
@@ -200,13 +205,19 @@ function LevelCompletePopup({
                 <div style={{ width: 52, textAlign: 'right' }}>Score</div>
               </div>
 
-              {leaderboard.length === 0 && (
-                <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: '16px 0', lineHeight: 1.55 }}>
-                  No scores yet. {signedIn ? 'Add friends to compare.' : 'Sign in and add friends to compare.'}
+              {boardLoading && (
+                <div style={{ textAlign: 'center', color: 'var(--fp-ink-4)', fontSize: 12, padding: '20px 0' }}>
+                  Loading…
                 </div>
               )}
 
-              {leaderboard.map((row, i) => (
+              {!boardLoading && board !== null && board.length === 0 && (
+                <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: '16px 0', lineHeight: 1.55 }}>
+                  {signedIn ? 'No scores yet — be the first!' : 'Sign in to appear on the global leaderboard.'}
+                </div>
+              )}
+
+              {!boardLoading && board !== null && board.map((row, i) => (
                 <div key={row.id} style={{
                   display: 'flex', alignItems: 'center',
                   padding: row.self ? '9px 10px' : '9px 0',
@@ -214,7 +225,7 @@ function LevelCompletePopup({
                   borderRadius: row.self ? 10 : 0,
                   background: row.self ? 'var(--fp-surface)' : 'transparent',
                   border: row.self ? '1.5px solid var(--fp-ink)' : 'none',
-                  borderBottom: !row.self && i < leaderboard.length - 1 ? '1px solid var(--fp-line)' : (row.self ? '1.5px solid var(--fp-ink)' : 'none'),
+                  borderBottom: !row.self && i < board.length - 1 ? '1px solid var(--fp-line)' : (row.self ? '1.5px solid var(--fp-ink)' : 'none'),
                 }}>
                   <div style={{
                     width: 28, flex: '0 0 28px',
@@ -223,7 +234,7 @@ function LevelCompletePopup({
                     color: row.rank === 1 ? '#d4a017' : row.rank === 2 ? '#9ba0a6' : row.rank === 3 ? '#b87333' : 'var(--fp-ink-4)',
                     fontFamily: "'Geist Mono', monospace",
                   }}>
-                    {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : row.rank}
+                    {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : (row.rank ?? '—')}
                   </div>
                   <div style={{ flex: 1, fontSize: 13, color: 'var(--fp-ink)', fontWeight: row.self ? 600 : 500, display: 'flex', alignItems: 'center', gap: 7 }}>
                     {row.avatar && <span style={{ fontSize: 14 }}>{row.avatar}</span>}
@@ -235,9 +246,9 @@ function LevelCompletePopup({
                 </div>
               ))}
 
-              {!signedIn && leaderboard.length > 0 && (
+              {!signedIn && (
                 <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fp-ink-4)', paddingTop: 10 }}>
-                  Sign in to save your score and add friends
+                  Sign in to save your score to the global leaderboard
                 </div>
               )}
             </div>
