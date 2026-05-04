@@ -178,28 +178,35 @@ function inDomain(x, domain) {
 
 // ─── Physics step ─────────────────────────────────────────────
 function physicsStep(ph, explFns, dt) {
-  // Remember y from last step so we can detect actual downward crossings
-  // rather than teleporting onto whatever function happens to be highest.
+  // Remember (x, y) from last sub-step so we can detect actual downward
+  // crossings rather than teleporting onto whatever function happens to
+  // be highest, AND so we don't tunnel through curves that rise sharply
+  // between the old and new x (the previous fix only sampled at the new x).
+  const xPrev = ph.x;
   const yPrev = ph.y;
 
   ph.vy -= GRAVITY * dt;
   ph.x  += ph.vx * dt;
   ph.y  += ph.vy * dt;
 
-  // A function counts as "hit" only if:
-  //   • the ball was at-or-above it before this step (yPrev - BALL_R >= cy − ε), AND
-  //   • the ball is now penetrating it       (ph.y - BALL_R <= cy)
-  // Among multiple valid candidates, pick the highest one (the topmost
-  // surface the ball just landed on).
+  // A function counts as "hit" if the ball was at-or-above it BEFORE this
+  // step at the previous x (yPrev - BALL_R >= cyPrev) AND is now penetrating
+  // it at the new x (ph.y - BALL_R <= cyNow). Falling back to the new x's
+  // value when the previous x is out-of-domain or NaN.
   let hitFn = null, hitY = -Infinity;
   const EPS = 1e-3;
   for (const { fn, domain } of explFns) {
     if (!inDomain(ph.x, domain)) continue;
-    const cy = fn(ph.x);
-    if (!isFinite(cy) || isNaN(cy)) continue;
-    const wasAbove = (yPrev - BALL_R) >= (cy - EPS);
-    const nowInside = (ph.y - BALL_R) <= cy;
-    if (wasAbove && nowInside && cy > hitY) { hitY = cy; hitFn = fn; }
+    const cyNow = fn(ph.x);
+    if (!isFinite(cyNow) || isNaN(cyNow)) continue;
+    let cyPrev = cyNow;
+    if (inDomain(xPrev, domain)) {
+      const cp = fn(xPrev);
+      if (isFinite(cp) && !isNaN(cp)) cyPrev = cp;
+    }
+    const wasAbove  = (yPrev - BALL_R) >= (cyPrev - EPS);
+    const nowInside = (ph.y  - BALL_R) <= cyNow;
+    if (wasAbove && nowInside && cyNow > hitY) { hitY = cyNow; hitFn = fn; }
   }
 
   if (hitFn !== null) {
@@ -619,6 +626,20 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) 
         </button>
 
         <div style={{ flex:1, minWidth:0, position:'relative' }}>
+          {/* Pretty-notation overlay rendered behind the input. The input has
+              transparent text in this mode so the prettified version shows
+              through, but clicks still land on the input — so tapping in the
+              middle of the equation positions the native caret right there. */}
+          {showPretty && (
+            <div style={{
+              position:'absolute', left:0, right:0, top:0, bottom:0,
+              display:'flex', alignItems:'center',
+              fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:14,
+              color: valid ? 'var(--fp-ink)' : '#c74440',
+              overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis',
+              pointerEvents:'none', zIndex: 0,
+            }}>{prettifyExpr(eq.expr)}</div>
+          )}
           <input
             ref={inputRef}
             value={eq.expr}
@@ -628,23 +649,17 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) 
             disabled={disabled}
             inputMode="none"
             spellCheck={false}
-            placeholder={notation === 'pretty' ? 'e.g.  y = sin(x)' : 'e.g.  y = sin(x)'}
+            placeholder="e.g.  y = sin(x)"
             style={{
               width:'100%', background:'transparent', border:0, outline:0,
               fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:14,
-              color: valid ? 'var(--fp-ink)' : '#c74440',
-              padding:'10px 0', visibility: showPretty ? 'hidden' : 'visible',
+              // Hide raw text behind the pretty overlay, but keep the caret
+              // visible so users can see exactly where their next character
+              // will be inserted when they tap mid-line.
+              color: showPretty ? 'transparent' : (valid ? 'var(--fp-ink)' : '#c74440'),
+              caretColor: 'var(--fp-ink)',
+              padding:'10px 0', position:'relative', zIndex: 1,
             }}/>
-          {showPretty && (
-            <div onClick={() => inputRef.current?.focus()} style={{
-              position:'absolute', left:0, right:0, top:0, bottom:0,
-              display:'flex', alignItems:'center',
-              fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:14,
-              color: valid ? 'var(--fp-ink)' : '#c74440',
-              cursor: disabled ? 'default' : 'text',
-              overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis',
-            }}>{prettifyExpr(eq.expr)}</div>
-          )}
         </div>
 
         <button onPointerDown={e=>{e.preventDefault(); setDomOpen(o=>!o);}}
