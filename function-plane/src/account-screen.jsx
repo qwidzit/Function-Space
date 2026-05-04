@@ -138,13 +138,45 @@ function GuestView({ onBack, padX, onSignIn, onRegister, onPremium }) {
 function SignedInView({ account, progress, onBack, padX, onPremium, onAdmin }) {
   const stars   = FP_AUTH.totalStarsFromProgress(progress);
   const isAdmin = FP_AUTH.isAdmin && FP_AUTH.isAdmin();
+  const [signOutOpen, setSignOutOpen] = useACS(false);
+  const [deleteOpen,  setDeleteOpen]  = useACS(false);
+  const [busy, setBusy] = useACS(false);
 
   const doSignOut = async () => {
-    if (confirm('Sign out of your account?')) await FP_AUTH.signOut();
+    setBusy(true);
+    try { await FP_AUTH.signOut(); }
+    finally { setBusy(false); setSignOutOpen(false); }
+  };
+  const doDelete = async () => {
+    setBusy(true);
+    try { await FP_AUTH.deleteAccount(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); setDeleteOpen(false); }
   };
 
   return (
-    <div className="fp-screen" style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', boxSizing:'border-box' }}>
+    <div className="fp-screen" style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', boxSizing:'border-box', position:'relative' }}>
+      {signOutOpen && (
+        <ConfirmPopup
+          title="Sign out?"
+          body="Your progress is saved on the server, so you can sign back in any time on this or another device."
+          confirmLabel="Sign out"
+          danger={false}
+          busy={busy}
+          onCancel={() => setSignOutOpen(false)}
+          onConfirm={doSignOut}/>
+      )}
+      {deleteOpen && (
+        <ConfirmPopup
+          title="Delete account permanently?"
+          body="This removes your profile, all gameplay progress, and your leaderboard entries. This cannot be undone."
+          confirmLabel="Delete account"
+          danger={true}
+          busy={busy}
+          onCancel={() => setDeleteOpen(false)}
+          onConfirm={doDelete}/>
+      )}
+
       <div style={{ padding:`calc(14px + env(safe-area-inset-top, 0px)) ${padX}px 0`, display:'flex', alignItems:'center', flex:'0 0 auto' }}>
         <button onClick={onBack} style={{ width:36, height:36, borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--fp-ink-2)' }}>
           <Icon.Chevron dir="left" size={18}/>
@@ -210,16 +242,11 @@ function SignedInView({ account, progress, onBack, padX, onPremium, onAdmin }) {
 
         <PremiumCard onPremium={onPremium}/>
 
-        <button onClick={doSignOut} style={{ width:'100%', height:48, borderRadius:14, background:'transparent', border:'1px solid var(--fp-line)', color:'var(--fp-ink-2)', fontSize:13.5, fontWeight:500, marginBottom:10 }}>
+        <button onClick={() => setSignOutOpen(true)} style={{ width:'100%', height:48, borderRadius:14, background:'transparent', border:'1px solid var(--fp-line)', color:'var(--fp-ink-2)', fontSize:13.5, fontWeight:500, marginBottom:10 }}>
           Sign out
         </button>
 
-        <button onClick={async () => {
-          const ok = confirm('Permanently delete your account?\n\nThis will remove your profile, all gameplay progress, and your leaderboard entries. This cannot be undone.');
-          if (!ok) return;
-          try { await FP_AUTH.deleteAccount(); }
-          catch (e) { alert(e.message); }
-        }} style={{
+        <button onClick={() => setDeleteOpen(true)} style={{
           width:'100%', height:42, borderRadius:12, background:'transparent', border:'1px solid color-mix(in srgb, #e34 35%, var(--fp-line))',
           color:'#e34', fontSize:12.5, fontWeight:500,
         }}>
@@ -442,6 +469,50 @@ function PremiumView({ onBack, padX }) {
         </div>
       </div>
     </ScreenFrame>
+  );
+}
+
+// ─── Confirm popup ──────────────────────────────────────────────────────────
+
+function ConfirmPopup({ title, body, confirmLabel, danger, busy, onCancel, onConfirm }) {
+  return (
+    <div onClick={onCancel} style={{
+      position: 'absolute', inset: 0, zIndex: 90,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '20px', backdropFilter: 'blur(2px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--fp-bg)', border: '1px solid var(--fp-line)',
+        borderRadius: 16, padding: '20px',
+        maxWidth: 340, width: '100%',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+      }}>
+        <div style={{
+          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontStyle: 'italic', fontSize: 24, color: 'var(--fp-ink)',
+          letterSpacing: '-0.02em', marginBottom: 8,
+        }}>{title}</div>
+        <div style={{ fontSize: 13, color: 'var(--fp-ink-3)', lineHeight: 1.55, marginBottom: 18 }}>
+          {body}
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel} disabled={busy} style={{
+            flex: 1, height: 44, borderRadius: 12,
+            background: 'transparent', border: '1px solid var(--fp-line)',
+            color: 'var(--fp-ink)', fontSize: 13.5, fontWeight: 500,
+            opacity: busy ? 0.6 : 1,
+          }}>Cancel</button>
+          <button onClick={onConfirm} disabled={busy} style={{
+            flex: 1, height: 44, borderRadius: 12,
+            background: danger ? '#e34' : 'var(--fp-ink)',
+            color: danger ? '#fff' : 'var(--fp-bg)',
+            fontSize: 13.5, fontWeight: 500,
+            opacity: busy ? 0.6 : 1,
+          }}>{busy ? '…' : confirmLabel}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

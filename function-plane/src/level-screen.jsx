@@ -15,22 +15,47 @@ const TIME_LIMIT = 28;
 function classifyEquation(expr) {
   if (!expr || !expr.trim()) return 0;
   const e = expr.toLowerCase().replace(/\s+/g, '');
-  const hasInvTrig = /\b(asin|acos|atan)\(/.test(e);
-  const hasExp  = /\bexp\(/.test(e) || /[^a-z]e\^/.test(e) || /^e\^/.test(e);
-  const hasLog  = /\b(log|ln)\(/.test(e);
-  const hasTrig = /\b(sin|cos|tan)\(/.test(e);
-  const transcendental = hasInvTrig || hasExp || hasLog || hasTrig;
+
+  // Count *occurrences* of each transcendental — composing several is more
+  // expensive than using one. sin(x) ≠ sin(x)*cos(x)*tan(x).
+  const trigCount    = (e.match(/\b(sin|cos|tan)\(/g)    || []).length;
+  const invTrigCount = (e.match(/\b(asin|acos|atan)\(/g) || []).length;
+  const logCount     = (e.match(/\b(log|ln)\(/g)         || []).length;
+  const expCount     = (e.match(/\bexp\(/g)              || []).length
+                     + (e.match(/(^|[^a-z])e\^/g)        || []).length;
+
+  // Variable-base or variable-exponent powers: x^x, 2^x, x^y — these are
+  // genuinely exponential and used to score 0 (linear) due to the regex
+  // only matching numeric exponents.
+  const hasVarExp = /[a-z_)\]]\^[a-z]/.test(e) || /[a-z_)\]]\*\*[a-z]/.test(e);
+
+  // Polynomial degree
   let maxDeg = 0;
   for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)/g))
     maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2]));
   if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
+
+  // Base score from the dominant feature
   let score;
-  if (hasInvTrig)     score = 40;
-  else if (hasExp)    score = 35;
-  else if (hasLog)    score = 30;
-  else if (hasTrig)   score = 25;
-  else                score = Math.max(1, maxDeg) * 10;
-  if (transcendental && maxDeg >= 2) score = Math.round(score * 1.5);
+  if (hasVarExp)             score = 40;  // truly exponential
+  else if (invTrigCount > 0) score = 40;
+  else if (expCount > 0)     score = 35;
+  else if (logCount > 0)     score = 30;
+  else if (trigCount > 0)    score = 25;
+  else                       score = Math.max(1, maxDeg) * 10;
+
+  // Composition cost — each additional transcendental beyond the first
+  // adds ~60% of the dominant score. So sin(x)*cos(x)*tan(x) ≈ 25 + 15 + 15 = 55,
+  // versus 25 for sin(x) alone.
+  const totalTrans = trigCount + invTrigCount + logCount + expCount;
+  if (totalTrans > 1) score += Math.round(score * 0.6 * (totalTrans - 1));
+
+  // Mixing transcendental with polynomial of degree ≥ 2 (e.g. sin(x)*x^2)
+  if (totalTrans >= 1 && maxDeg >= 2) score = Math.round(score * 1.3);
+
+  // High-degree polynomials cost slightly more per extra power
+  if (maxDeg >= 4) score += (maxDeg - 3) * 5;
+
   return score;
 }
 
@@ -39,7 +64,9 @@ function detectClass(expr) {
   if (!expr || !expr.trim()) return null;
   const e = expr.toLowerCase().replace(/\s+/g, '');
   if (/\b(asin|acos|atan)\(/.test(e)) return 'inverseTrig';
-  if (/\bexp\(/.test(e) || /[^a-z]e\^/.test(e) || /^e\^/.test(e)) return 'exp';
+  if (/\bexp\(/.test(e) || /(^|[^a-z])e\^/.test(e)) return 'exp';
+  // Variable-exponent or variable-base powers — x^x, 2^x, x^y — count as exponential.
+  if (/[a-z_)\]]\^[a-z]/.test(e) || /[a-z_)\]]\*\*[a-z]/.test(e)) return 'exp';
   if (/\b(log|ln)\(/.test(e)) return 'log';
   if (/\b(sin|cos|tan)\(/.test(e)) return 'trig';
   let maxDeg = 0;
@@ -89,6 +116,15 @@ function normExpr(s) {
   fns.forEach(f => { s = s.replace(new RegExp(`\\b${f}\\(`,'g'),`Math.${f}(`); });
   s = s.replace(/\bln\(/g,'Math.log(');
   s = s.replace(/\be\b/g,'(Math.E)');
+  // JS forbids unary minus directly before ** ("-x**2" is a SyntaxError).
+  // Maths convention is that -x^2 means -(x^2), so rewrite the offending
+  // pattern as -(base**exp). Iterate so chained cases like "2*-x**2*-y**3"
+  // all get fixed. Covers simple identifiers, numbers, parenthesised
+  // groups and Math.fn(...) calls as the base/exponent.
+  const TERM = '(?:Math\\.[a-zA-Z]+\\([^()]*\\)|[a-zA-Z_]\\w*\\([^()]*\\)|[a-zA-Z_]\\w*|\\d+(?:\\.\\d+)?|\\([^()]*\\))';
+  const re = new RegExp(`(^|[^\\w)])-(${TERM})\\*\\*(${TERM})`, 'g');
+  let prev;
+  do { prev = s; s = s.replace(re, '$1-($2**$3)'); } while (s !== prev);
   return s;
 }
 
@@ -177,11 +213,7 @@ function inDomain(x, domain) {
 }
 
 // ─── Physics step ─────────────────────────────────────────────
-function physicsStep(ph, explFns, dt) {
-  // Remember (x, y) from last sub-step so we can detect actual downward
-  // crossings rather than teleporting onto whatever function happens to
-  // be highest, AND so we don't tunnel through curves that rise sharply
-  // between the old and new x (the previous fix only sampled at the new x).
+function physicsStep(ph, explFns, implFns, dt) {
   const xPrev = ph.x;
   const yPrev = ph.y;
 
@@ -189,12 +221,13 @@ function physicsStep(ph, explFns, dt) {
   ph.x  += ph.vx * dt;
   ph.y  += ph.vy * dt;
 
-  // A function counts as "hit" if the ball was at-or-above it BEFORE this
-  // step at the previous x (yPrev - BALL_R >= cyPrev) AND is now penetrating
-  // it at the new x (ph.y - BALL_R <= cyNow). Falling back to the new x's
-  // value when the previous x is out-of-domain or NaN.
-  let hitFn = null, hitY = -Infinity;
   const EPS = 1e-3;
+
+  // ── Explicit y = f(x): bidirectional collision ─────────────────────────
+  // Top-side hit: ball was at-or-above the curve before, now penetrating
+  // from above. Bottom-side hit: ball was at-or-below, now penetrating
+  // from below. Top-side wins if both happen at once (rare).
+  let hitFn = null, hitY = -Infinity, hitFromBelow = false;
   for (const { fn, domain } of explFns) {
     if (!inDomain(ph.x, domain)) continue;
     const cyNow = fn(ph.x);
@@ -205,32 +238,100 @@ function physicsStep(ph, explFns, dt) {
       if (isFinite(cp) && !isNaN(cp)) cyPrev = cp;
     }
     const wasAbove  = (yPrev - BALL_R) >= (cyPrev - EPS);
-    const nowInside = (ph.y  - BALL_R) <= cyNow;
-    if (wasAbove && nowInside && cyNow > hitY) { hitY = cyNow; hitFn = fn; }
+    const nowInsideTop = (ph.y - BALL_R) <= cyNow;
+    if (wasAbove && nowInsideTop && cyNow > hitY) {
+      hitY = cyNow; hitFn = fn; hitFromBelow = false;
+    }
+  }
+  if (hitFn === null) {
+    // Try bottom-side hit (ball moving up into the curve)
+    let bestY = Infinity, bestFn = null;
+    for (const { fn, domain } of explFns) {
+      if (!inDomain(ph.x, domain)) continue;
+      const cyNow = fn(ph.x);
+      if (!isFinite(cyNow) || isNaN(cyNow)) continue;
+      let cyPrev = cyNow;
+      if (inDomain(xPrev, domain)) {
+        const cp = fn(xPrev);
+        if (isFinite(cp) && !isNaN(cp)) cyPrev = cp;
+      }
+      const wasBelow  = (yPrev + BALL_R) <= (cyPrev + EPS);
+      const nowInsideBottom = (ph.y + BALL_R) >= cyNow;
+      if (wasBelow && nowInsideBottom && cyNow < bestY) {
+        bestY = cyNow; bestFn = fn;
+      }
+    }
+    if (bestFn) { hitFn = bestFn; hitY = bestY; hitFromBelow = true; }
   }
 
   if (hitFn !== null) {
-    ph.y = hitY + BALL_R;
+    ph.y = hitFromBelow ? (hitY - BALL_R) : (hitY + BALL_R);
     const h = 0.003;
     const fp = hitFn(ph.x+h), fm = hitFn(ph.x-h);
     if (isFinite(fp) && isFinite(fm)) {
       const slope = (fp-fm)/(2*h);
       const mag = Math.sqrt(1+slope*slope);
-      const nx = -slope/mag, ny = 1/mag;
+      // Normal points "up" relative to function for top-side hit, down for bottom
+      let nx = -slope/mag, ny = 1/mag;
+      if (hitFromBelow) { nx = -nx; ny = -ny; }
       const vn = ph.vx*nx + ph.vy*ny;
       if (vn < 0) {
         ph.vx -= (1+PHYSICS_CONFIG.bounciness)*vn*nx;
         ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
         ph.vx *= PHYSICS_CONFIG.energyRetention;
         ph.vy *= PHYSICS_CONFIG.energyRetention;
-        // Only fire a "bounce" event for impacts above threshold — sliding
-        // contacts produce a tiny normal velocity each step and would otherwise
-        // spam the SFX. 1.5 m/s ≈ a real audible bounce.
         if (-vn > 1.5) ph.bounced = true;
       }
     }
   }
 
+  // ── Implicit F(x,y) = 0: distance-based collision ──────────────────────
+  // Each implicit equation defines a level curve where F = 0. The signed
+  // perpendicular distance from any point to that curve is approximately
+  // F(x,y) / |∇F|. If |distance| ≤ BALL_R the ball is touching the curve.
+  // We also check that the sign flipped between the previous and current
+  // position (the ball really crossed the curve) so we don't bounce
+  // repeatedly while resting on it.
+  for (const { fn, domain } of implFns) {
+    if (!inDomain(ph.x, domain)) continue;
+    const F = fn(ph.x, ph.y);
+    if (!isFinite(F) || isNaN(F)) continue;
+    const h = 0.003;
+    const Fx = (fn(ph.x + h, ph.y) - fn(ph.x - h, ph.y)) / (2*h);
+    const Fy = (fn(ph.x, ph.y + h) - fn(ph.x, ph.y - h)) / (2*h);
+    const gmag = Math.sqrt(Fx*Fx + Fy*Fy);
+    if (!isFinite(gmag) || gmag < 1e-6) continue;
+    const dist = F / gmag;          // signed: positive on F>0 side
+    if (Math.abs(dist) > BALL_R) continue;
+
+    // Did the ball actually cross? Sign of F at the previous position.
+    let Fprev = fn(xPrev, yPrev);
+    if (!isFinite(Fprev)) Fprev = F;
+    const crossed = (Fprev > 0) !== (F > 0);
+    const distPrev = isFinite(Fprev) ? Fprev / gmag : dist;
+    const wasOutsideHitbox = Math.abs(distPrev) > BALL_R;
+    if (!crossed && !wasOutsideHitbox) continue;
+
+    // Push the ball out along the normal (gradient direction) so its
+    // surface just touches the curve.
+    const nx = Fx / gmag, ny = Fy / gmag;            // points to F-positive side
+    const sign = F > 0 ? 1 : -1;
+    ph.x += nx * (sign * BALL_R - dist);
+    ph.y += ny * (sign * BALL_R - dist);
+
+    // Reflect the velocity component along the curve normal
+    const vn = ph.vx*nx + ph.vy*ny;
+    // Only bounce if the ball is moving INTO the curve (vn has opposite sign of "out")
+    if (vn * sign < 0) {
+      ph.vx -= (1+PHYSICS_CONFIG.bounciness)*vn*nx;
+      ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
+      ph.vx *= PHYSICS_CONFIG.energyRetention;
+      ph.vy *= PHYSICS_CONFIG.energyRetention;
+      if (Math.abs(vn) > 1.5) ph.bounced = true;
+    }
+  }
+
+  // ── Star collection ────────────────────────────────────────────────────
   for (let i = 0; i < ph.stars.length; i++) {
     if (!ph.stars[i].collected &&
         Math.hypot(ph.x-ph.stars[i].x, ph.y-ph.stars[i].y) < STAR_R+BALL_R) {
@@ -916,11 +1017,14 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       const explFns = equationsRef.current
         .filter(e => e.fn && e.visible && !e.isImplicit)
         .map(e => ({ fn:e.fn, domain:e.domain }));
+      const implFns = equationsRef.current
+        .filter(e => e.fn && e.visible && e.isImplicit)
+        .map(e => ({ fn:e.fn, domain:e.domain }));
 
       ph.bounced = false;
       ph.justCollected = false;
 
-      for (let s=0; s<SUB_STEPS; s++) physicsStep(ph, explFns, dt);
+      for (let s=0; s<SUB_STEPS; s++) physicsStep(ph, explFns, implFns, dt);
 
       if (ph.bounced) { sfx('bounce'); }
       if (ph.justCollected) { sfx('collectStar'); hap(12); }
