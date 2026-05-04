@@ -89,11 +89,17 @@ function UsersAdmin({ padX, onBack }) {
 
   const togglePremium = async (row) => {
     const next = !row.is_premium;
-    if (!confirm(`${next ? 'Grant' : 'Revoke'} premium for ${row.name}?`)) return;
+    const ok = await window.fpConfirm({
+      title: next ? `Grant premium to ${row.name}?` : `Revoke premium from ${row.name}?`,
+      body:  next ? 'They will get all packs unlocked immediately.' : 'They will lose premium-only content access.',
+      confirmLabel: next ? 'Grant' : 'Revoke',
+      danger: !next,
+    });
+    if (!ok) return;
     try {
       await FP_AUTH.setPremium(row.id, next);
       setResults(rs => rs.map(r => r.id === row.id ? { ...r, is_premium: next } : r));
-    } catch (e) { alert(e.message); }
+    } catch (e) { window.fpToast?.(e.message, { kind: 'error' }); }
   };
 
   return (
@@ -264,12 +270,17 @@ function LevelEditor({ pack, levelIndex, padX, onBack, onChanged }) {
   const [scoreGoal, setScoreGoal] = useAS(String(data.scoreGoal));
   const [eqGoal,    setEqGoal]    = useAS(String(data.eqGoal));
   const [stars,     setStars]     = useAS(data.stars.map(s => ({ x: String(s.x), y: String(s.y) })));
+  const [preplaced, setPreplaced] = useAS(Array.isArray(ov.preplaced) ? [...ov.preplaced] : []);
   const [busy, setBusy] = useAS(false);
   const [msg,  setMsg]  = useAS('');
 
   const setStar = (i, k, v) => setStars(arr => arr.map((s, idx) => idx === i ? { ...s, [k]: v } : s));
   const addStar = () => setStars(arr => [...arr, { x: '0', y: '0' }]);
   const removeStar = (i) => setStars(arr => arr.filter((_, idx) => idx !== i));
+
+  const setPre = (i, v) => setPreplaced(arr => arr.map((s, idx) => idx === i ? v : s));
+  const addPre = () => setPreplaced(arr => [...arr, '']);
+  const removePre = (i) => setPreplaced(arr => arr.filter((_, idx) => idx !== i));
 
   const save = async () => {
     setBusy(true); setMsg('');
@@ -282,6 +293,7 @@ function LevelEditor({ pack, levelIndex, padX, onBack, onChanged }) {
                     .filter(s => isFinite(s.x) && isFinite(s.y)),
         score_goal: intOrNull(scoreGoal),
         eq_goal:    intOrNull(eqGoal),
+        preplaced:  preplaced.map(s => (s || '').trim()).filter(Boolean),
       };
       if (!patch.stars.length) throw new Error('At least one star is required');
       if (patch.ball_x == null || patch.ball_y == null) throw new Error('Ball position is required');
@@ -321,6 +333,23 @@ function LevelEditor({ pack, levelIndex, padX, onBack, onChanged }) {
             </div>
           ))}
           <button onClick={addStar} style={{ marginTop: 4, fontSize: 12, color: 'var(--fp-ink-3)' }}>+ add star</button>
+        </div>
+
+        <div style={{ marginTop: 18, marginBottom: 8 }}>
+          <div style={{ fontSize: 11.5, color: 'var(--fp-ink-3)', letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 6 }}>
+            Pre-placed equations
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--fp-ink-4)', lineHeight: 1.5, marginBottom: 8 }}>
+            Visible to players but locked — they can't edit or remove them, and they don't count toward score or equation budget.
+          </div>
+          {preplaced.map((expr, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ width: 18, fontSize: 11.5, color: 'var(--fp-ink-4)', fontFamily: "'Geist Mono', monospace" }}>{i+1}</span>
+              <input value={expr} onChange={e => setPre(i, e.target.value)} placeholder="y = sin(x)" style={miniInput()}/>
+              <button onClick={() => removePre(i)} style={{ width: 28, height: 28, borderRadius: 7, color: 'var(--fp-ink-4)', fontSize: 16 }}>×</button>
+            </div>
+          ))}
+          <button onClick={addPre} style={{ marginTop: 4, fontSize: 12, color: 'var(--fp-ink-3)' }}>+ add pre-placed equation</button>
         </div>
 
         <button onClick={save} disabled={busy} style={primaryBtn(busy)}>

@@ -150,7 +150,7 @@ function SignedInView({ account, progress, onBack, padX, onPremium, onAdmin }) {
   const doDelete = async () => {
     setBusy(true);
     try { await FP_AUTH.deleteAccount(); }
-    catch (e) { alert(e.message); }
+    catch (e) { window.fpToast?.(e.message, { kind: 'error' }); }
     finally { setBusy(false); setDeleteOpen(false); }
   };
 
@@ -423,7 +423,11 @@ function PremiumView({ onBack, padX }) {
       window.open(url, '_blank', 'noopener,noreferrer');
       return;
     }
-    alert('In-app purchases are not configured yet.\n\nThe site owner needs to:\n1. Create three Stripe Payment Links (one per plan)\n2. Paste the URLs into src/premium-config.js\n3. (Optional) Wire a webhook that flips profiles.is_premium on payment\n\nUntil then this button is a placeholder.');
+    window.fpConfirm?.({
+      title: 'Premium not configured',
+      body: 'In-app purchases aren\'t hooked up yet. The site owner needs to create three Stripe Payment Links and paste the URLs into src/premium-config.js. Once that\'s done, this button will open the checkout.',
+      confirmLabel: 'OK',
+    });
   };
 
   return (

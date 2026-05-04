@@ -84,7 +84,7 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
             onChange={async v => {
               if (v) {
                 try { await window.FP_AUTH?.enablePushNotifications?.(); }
-                catch (e) { alert(e.message); v = false; }
+                catch (e) { window.fpToast?.(e.message, { kind: 'error' }); v = false; }
               }
               updateSetting('notifNewPacks', v);
             }} />

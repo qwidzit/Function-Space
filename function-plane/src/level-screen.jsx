@@ -5,7 +5,7 @@ const { useState: useSL, useRef: useRL, useEffect: useEL, useMemo: useML } = Rea
 const EQ_COLORS = ['#c74440','#2d70b3','#388c46','#6042a6','#fa7e19','#000000'];
 
 const GRAVITY    = 12;
-const SUB_STEPS  = 5;
+const SUB_STEPS  = 10;
 const STAR_R     = 0.55;
 const BALL_R     = 0.22;
 const FALL_LIMIT = -13;
@@ -223,75 +223,82 @@ function physicsStep(ph, explFns, implFns, dt) {
 
   const EPS = 1e-3;
 
-  // ── Explicit y = f(x): bidirectional collision ─────────────────────────
-  // Top-side hit: ball was at-or-above the curve before, now penetrating
-  // from above. Bottom-side hit: ball was at-or-below, now penetrating
-  // from below. Top-side wins if both happen at once (rare).
-  let hitFn = null, hitY = -Infinity, hitFromBelow = false;
+  // ── Explicit y = f(x): bidirectional collision with intermediate sampling
+  //
+  // For oscillating curves (sin / cos / etc.) the ball can pass over a peak
+  // between two physics sub-steps and never trigger collision at either
+  // endpoint. We sample the curve at SAMPLES intermediate x positions along
+  // the trajectory and pick the highest cy the ball passed under (or, for
+  // bottom hits, the lowest cy it passed over) — this catches peaks the
+  // straight-line path went through.
+  const SAMPLES = 6;
+  let hitFn = null, hitX = ph.x, hitY = -Infinity, hitFromBelow = false;
+
+  // Top-side pass: ball going down onto curve
   for (const { fn, domain } of explFns) {
-    if (!inDomain(ph.x, domain)) continue;
-    const cyNow = fn(ph.x);
-    if (!isFinite(cyNow) || isNaN(cyNow)) continue;
-    let cyPrev = cyNow;
-    if (inDomain(xPrev, domain)) {
-      const cp = fn(xPrev);
-      if (isFinite(cp) && !isNaN(cp)) cyPrev = cp;
-    }
-    const wasAbove  = (yPrev - BALL_R) >= (cyPrev - EPS);
-    const nowInsideTop = (ph.y - BALL_R) <= cyNow;
-    if (wasAbove && nowInsideTop && cyNow > hitY) {
-      hitY = cyNow; hitFn = fn; hitFromBelow = false;
+    for (let i = 0; i <= SAMPLES; i++) {
+      const t  = i / SAMPLES;
+      const xs = xPrev + (ph.x - xPrev) * t;
+      const ys = yPrev + (ph.y - yPrev) * t;
+      if (!inDomain(xs, domain)) continue;
+      const cy = fn(xs);
+      if (!isFinite(cy) || isNaN(cy)) continue;
+      // Ball was above this x at the start of the step (or earlier in path)?
+      const yStart = yPrev;
+      const wasAbove  = (yStart - BALL_R) >= (cy - EPS);
+      const nowInside = (ys - BALL_R) <= cy;
+      if (wasAbove && nowInside && cy > hitY) {
+        hitY = cy; hitFn = fn; hitX = xs; hitFromBelow = false;
+      }
     }
   }
+  // Bottom-side pass: ball going up into underside of curve
   if (hitFn === null) {
-    // Try bottom-side hit (ball moving up into the curve)
-    let bestY = Infinity, bestFn = null;
+    let bestY = Infinity, bestFn = null, bestX = ph.x;
     for (const { fn, domain } of explFns) {
-      if (!inDomain(ph.x, domain)) continue;
-      const cyNow = fn(ph.x);
-      if (!isFinite(cyNow) || isNaN(cyNow)) continue;
-      let cyPrev = cyNow;
-      if (inDomain(xPrev, domain)) {
-        const cp = fn(xPrev);
-        if (isFinite(cp) && !isNaN(cp)) cyPrev = cp;
-      }
-      const wasBelow  = (yPrev + BALL_R) <= (cyPrev + EPS);
-      const nowInsideBottom = (ph.y + BALL_R) >= cyNow;
-      if (wasBelow && nowInsideBottom && cyNow < bestY) {
-        bestY = cyNow; bestFn = fn;
+      for (let i = 0; i <= SAMPLES; i++) {
+        const t  = i / SAMPLES;
+        const xs = xPrev + (ph.x - xPrev) * t;
+        const ys = yPrev + (ph.y - yPrev) * t;
+        if (!inDomain(xs, domain)) continue;
+        const cy = fn(xs);
+        if (!isFinite(cy) || isNaN(cy)) continue;
+        const yStart = yPrev;
+        const wasBelow  = (yStart + BALL_R) <= (cy + EPS);
+        const nowInside = (ys + BALL_R) >= cy;
+        if (wasBelow && nowInside && cy < bestY) {
+          bestY = cy; bestFn = fn; bestX = xs;
+        }
       }
     }
-    if (bestFn) { hitFn = bestFn; hitY = bestY; hitFromBelow = true; }
+    if (bestFn) { hitFn = bestFn; hitY = bestY; hitX = bestX; hitFromBelow = true; }
   }
 
   if (hitFn !== null) {
-    ph.y = hitFromBelow ? (hitY - BALL_R) : (hitY + BALL_R);
+    // Slope at the contact x
     const h = 0.003;
-    const fp = hitFn(ph.x+h), fm = hitFn(ph.x-h);
-    if (isFinite(fp) && isFinite(fm)) {
-      const slope = (fp-fm)/(2*h);
-      const mag = Math.sqrt(1+slope*slope);
-      // Normal points "up" relative to function for top-side hit, down for bottom
-      let nx = -slope/mag, ny = 1/mag;
-      if (hitFromBelow) { nx = -nx; ny = -ny; }
-      const vn = ph.vx*nx + ph.vy*ny;
-      if (vn < 0) {
-        ph.vx -= (1+PHYSICS_CONFIG.bounciness)*vn*nx;
-        ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
-        ph.vx *= PHYSICS_CONFIG.energyRetention;
-        ph.vy *= PHYSICS_CONFIG.energyRetention;
-        if (-vn > 1.5) ph.bounced = true;
-      }
+    const fp = hitFn(hitX + h), fm = hitFn(hitX - h);
+    const slope = (isFinite(fp) && isFinite(fm)) ? (fp - fm) / (2*h) : 0;
+    const mag   = Math.sqrt(1 + slope*slope);
+    // Place the ball so its CENTER is BALL_R away from the curve along the
+    // surface normal, not just BALL_R vertically — otherwise the visible
+    // ball overlaps the curve on slopes (the "hitbox looks like a dot" bug).
+    ph.x = hitX;
+    ph.y = hitFromBelow ? (hitY - BALL_R * mag) : (hitY + BALL_R * mag);
+
+    let nx = -slope/mag, ny = 1/mag;
+    if (hitFromBelow) { nx = -nx; ny = -ny; }
+    const vn = ph.vx*nx + ph.vy*ny;
+    if (vn < 0) {
+      ph.vx -= (1+PHYSICS_CONFIG.bounciness)*vn*nx;
+      ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
+      ph.vx *= PHYSICS_CONFIG.energyRetention;
+      ph.vy *= PHYSICS_CONFIG.energyRetention;
+      if (-vn > 1.5) ph.bounced = true;
     }
   }
 
   // ── Implicit F(x,y) = 0: distance-based collision ──────────────────────
-  // Each implicit equation defines a level curve where F = 0. The signed
-  // perpendicular distance from any point to that curve is approximately
-  // F(x,y) / |∇F|. If |distance| ≤ BALL_R the ball is touching the curve.
-  // We also check that the sign flipped between the previous and current
-  // position (the ball really crossed the curve) so we don't bounce
-  // repeatedly while resting on it.
   for (const { fn, domain } of implFns) {
     if (!inDomain(ph.x, domain)) continue;
     const F = fn(ph.x, ph.y);
@@ -301,10 +308,9 @@ function physicsStep(ph, explFns, implFns, dt) {
     const Fy = (fn(ph.x, ph.y + h) - fn(ph.x, ph.y - h)) / (2*h);
     const gmag = Math.sqrt(Fx*Fx + Fy*Fy);
     if (!isFinite(gmag) || gmag < 1e-6) continue;
-    const dist = F / gmag;          // signed: positive on F>0 side
+    const dist = F / gmag;
     if (Math.abs(dist) > BALL_R) continue;
 
-    // Did the ball actually cross? Sign of F at the previous position.
     let Fprev = fn(xPrev, yPrev);
     if (!isFinite(Fprev)) Fprev = F;
     const crossed = (Fprev > 0) !== (F > 0);
@@ -312,16 +318,12 @@ function physicsStep(ph, explFns, implFns, dt) {
     const wasOutsideHitbox = Math.abs(distPrev) > BALL_R;
     if (!crossed && !wasOutsideHitbox) continue;
 
-    // Push the ball out along the normal (gradient direction) so its
-    // surface just touches the curve.
-    const nx = Fx / gmag, ny = Fy / gmag;            // points to F-positive side
+    const nx = Fx / gmag, ny = Fy / gmag;
     const sign = F > 0 ? 1 : -1;
     ph.x += nx * (sign * BALL_R - dist);
     ph.y += ny * (sign * BALL_R - dist);
 
-    // Reflect the velocity component along the curve normal
     const vn = ph.vx*nx + ph.vy*ny;
-    // Only bounce if the ball is moving INTO the curve (vn has opposite sign of "out")
     if (vn * sign < 0) {
       ph.vx -= (1+PHYSICS_CONFIG.bounciness)*vn*nx;
       ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
@@ -710,9 +712,11 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) 
   const [focused, setFocused] = useSL(false);
   const valid = !eq.expr.trim() || eq.fn != null;
   const showPretty = notation === 'pretty' && !focused && eq.expr;
+  const locked = !!eq.preplaced;
 
   return (
-    <div style={{ borderTop:'1px solid var(--lv-line)' }}>
+    <div style={{ borderTop:'1px solid var(--lv-line)',
+      background: locked ? 'color-mix(in srgb, var(--fp-ink) 4%, transparent)' : 'transparent' }}>
       <div style={{ display:'flex', alignItems:'stretch' }}>
         <button onPointerDown={e=>{e.preventDefault(); !disabled && onChange({ visible:!eq.visible });}}
           style={{ width:36, flex:'0 0 36px', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -727,10 +731,6 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) 
         </button>
 
         <div style={{ flex:1, minWidth:0, position:'relative' }}>
-          {/* Pretty-notation overlay rendered behind the input. The input has
-              transparent text in this mode so the prettified version shows
-              through, but clicks still land on the input — so tapping in the
-              middle of the equation positions the native caret right there. */}
           {showPretty && (
             <div style={{
               position:'absolute', left:0, right:0, top:0, bottom:0,
@@ -744,41 +744,47 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) 
           <input
             ref={inputRef}
             value={eq.expr}
-            onChange={e => onChange({ expr: e.target.value })}
-            onFocus={() => { setFocused(true); !disabled && onActivate(inputRef); }}
+            onChange={e => !locked && onChange({ expr: e.target.value })}
+            onFocus={() => { setFocused(true); !disabled && !locked && onActivate(inputRef); }}
             onBlur={() => setFocused(false)}
-            disabled={disabled}
+            disabled={disabled || locked}
+            readOnly={locked}
             inputMode="none"
             spellCheck={false}
             placeholder="e.g.  y = sin(x)"
             style={{
               width:'100%', background:'transparent', border:0, outline:0,
               fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:14,
-              // Hide raw text behind the pretty overlay, but keep the caret
-              // visible so users can see exactly where their next character
-              // will be inserted when they tap mid-line.
-              color: showPretty ? 'transparent' : (valid ? 'var(--fp-ink)' : '#c74440'),
+              color: showPretty ? 'transparent' : (locked ? 'var(--fp-ink-2)' : (valid ? 'var(--fp-ink)' : '#c74440')),
               caretColor: 'var(--fp-ink)',
               padding:'10px 0', position:'relative', zIndex: 1,
             }}/>
         </div>
 
-        <button onPointerDown={e=>{e.preventDefault(); setDomOpen(o=>!o);}}
-          title="Restrict domain"
-          style={{
-            width:32, flex:'0 0 32px', display:'flex', alignItems:'center',
-            justifyContent:'center', color: domOpen ? 'var(--fp-accent)' : 'var(--fp-ink-4)',
-          }}>
-          <svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-            <path d="M6 3v18M18 3v18M3 9h18M3 15h18" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round"/>
-          </svg>
-        </button>
+        {!locked && (
+          <button onPointerDown={e=>{e.preventDefault(); setDomOpen(o=>!o);}}
+            title="Restrict domain"
+            style={{
+              width:32, flex:'0 0 32px', display:'flex', alignItems:'center',
+              justifyContent:'center', color: domOpen ? 'var(--fp-accent)' : 'var(--fp-ink-4)',
+            }}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <path d="M6 3v18M18 3v18M3 9h18M3 15h18" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round"/>
+            </svg>
+          </button>
+        )}
 
-        <button onPointerDown={e=>{e.preventDefault(); !disabled && onRemove();}}
-          style={{ width:34, flex:'0 0 34px', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--fp-ink-3)' }}>
-          <svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round"/>
-          </svg>
+        <button
+          onPointerDown={e=>{e.preventDefault(); if (locked || disabled) return; onRemove();}}
+          style={{ width:34, flex:'0 0 34px', display:'flex', alignItems:'center', justifyContent:'center',
+            color: locked ? 'var(--fp-ink-4)' : 'var(--fp-ink-3)', cursor: locked ? 'default' : 'pointer' }}
+          title={locked ? 'Pre-placed by the level designer — locked' : 'Remove equation'}>
+          {locked
+            ? <Icon.Lock size={12} c="currentColor"/>
+            : <svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round"/>
+              </svg>
+          }
         </button>
       </div>
 
@@ -821,12 +827,13 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled,
 
   const update = (id, patch) => setEquations(eqs => eqs.map(e => {
     if (e.id !== id) return e;
+    if (e.preplaced && 'expr' in patch) return e;  // can't edit pre-placed
     const merged = { ...e, ...patch };
     if ('expr' in patch) Object.assign(merged, parseEquation(patch.expr));
     return merged;
   }));
 
-  const remove = id => setEquations(eqs => eqs.filter(e=>e.id!==id));
+  const remove = id => setEquations(eqs => eqs.filter(e => e.id !== id || e.preplaced));
 
   return (
     <div style={{
@@ -930,9 +937,24 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   const sfx = (name) => { if (soundEnabled && window.FP_AUDIO) window.FP_AUDIO[name]?.(volume); };
   const hap = (ms)   => { if (hapticsEnabled && window.FP_HAPTIC) window.FP_HAPTIC(ms); };
 
-  const [equations, setEquations] = useSL([
-    { id:1, expr:'', fn:null, isImplicit:false, color:EQ_COLORS[0], visible:true, domain:null },
-  ]);
+  // Pre-placed equations come from the level data (admin-authored). They are
+  // shown first, can't be removed, and are excluded from score / eqsUsed.
+  const [equations, setEquations] = useSL(() => {
+    const pre = (levelData.preplaced || []).map((expr, i) => {
+      const parsed = parseEquation(expr);
+      return {
+        id: -(i + 1),  // negative id so user-added rows (positive) never clash
+        expr, ...parsed,
+        color: EQ_COLORS[i % EQ_COLORS.length],
+        visible: true, domain: null,
+        preplaced: true,
+      };
+    });
+    return [
+      ...pre,
+      { id:1, expr:'', fn:null, isImplicit:false, color:EQ_COLORS[pre.length % EQ_COLORS.length], visible:true, domain:null, preplaced: false },
+    ];
+  });
   const [panelOpen, setPanelOpen] = useSL(true);
   const [running,   setRunning]   = useSL(false);
   const [ballPos,   setBallPos]   = useSL({ ...levelData.ball });
@@ -949,8 +971,10 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   const best      = progress?.[pack.id]?.best?.[levelIndex]      ?? null;
   const bestTime  = progress?.[pack.id]?.bestTime?.[levelIndex]  ?? null;
   const prevStars = progress?.[pack.id]?.stars?.[levelIndex]     ?? -1;
-  const eqsUsed   = equations.filter(e=>e.fn).length;
-  const liveScore = computeScore(equations);
+  // Pre-placed equations don't count toward score / equation-budget.
+  const userEquations = equations.filter(e => !e.preplaced);
+  const eqsUsed   = userEquations.filter(e => e.fn).length;
+  const liveScore = computeScore(userEquations);
   const [elapsed, setElapsed] = useSL(0);
 
   const resetSim = () => {
@@ -966,7 +990,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   const packAllowedClass = (window.getPack ? getPack(pack.id)?.allowedClass : pack.allowedClass) || null;
   const classWarning = useML(() => {
     if (!packAllowedClass) return null;
-    const offenders = equations.filter(e => e.fn).map(e => ({
+    const offenders = equations.filter(e => e.fn && !e.preplaced).map(e => ({
       expr: e.expr, cls: detectClass(e.expr),
     })).filter(({ cls }) => !classMatches(packAllowedClass, cls));
     if (offenders.length === 0) return null;
@@ -1047,8 +1071,9 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
           return;
         }
 
-        const eqsN     = equationsRef.current.filter(e=>e.fn).length;
-        const sc       = computeScore(equationsRef.current);
+        const userEqs  = equationsRef.current.filter(e => !e.preplaced);
+        const eqsN     = userEqs.filter(e=>e.fn).length;
+        const sc       = computeScore(userEqs);
         const finishT  = +elapsedS.toFixed(2);
         const rating   = starRating(eqsN, sc, eqGoal, scoreGoal);
         const isNew    = best == null || sc < best;
