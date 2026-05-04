@@ -52,6 +52,7 @@
     if (session) {
       _currentUser = await _fetchProfile(session.user);
       await _syncProgressDown(session.user.id, true);
+      _flushQueue();
     }
     notify();
 
@@ -59,7 +60,10 @@
     _sb.auth.onAuthStateChange(async (event, session) => {
       if (session) {
         _currentUser = await _fetchProfile(session.user);
-        if (event === 'SIGNED_IN') await _syncProgressDown(session.user.id, false);
+        if (event === 'SIGNED_IN') {
+          await _syncProgressDown(session.user.id, false);
+          _flushQueue();
+        }
       } else {
         _currentUser = null;
       }
@@ -70,13 +74,14 @@
   async function _fetchProfile(user) {
     if (!_sb) return null;
     const { data } = await _sb.from('profiles')
-      .select('name, avatar, total_stars').eq('id', user.id).single();
+      .select('name, avatar, total_stars, is_premium').eq('id', user.id).single();
     return {
       id:         user.id,
       email:      user.email,
       name:       data?.name  || user.user_metadata?.name   || 'Player',
       avatar:     data?.avatar || user.user_metadata?.avatar || '🟢',
       totalStars: data?.total_stars || 0,
+      isPremium:  !!data?.is_premium,
     };
   }
 
@@ -175,6 +180,33 @@
     if (_sb) await _sb.auth.signOut();
   }
 
+  // Delete the signed-in user's account. Required by Google Play (2024+).
+  // Removes: progress, level_scores, profile row. Then signs out so the local
+  // session cache is cleared. The auth.users row is removed by Supabase on
+  // cascade once the profile is deleted (FK is ON DELETE CASCADE).
+  async function deleteAccount() {
+    if (!_sb || !_currentUser) throw new Error('Not signed in');
+    const id = _currentUser.id;
+    // RLS lets a user delete their own rows
+    const errs = [];
+    const r1 = await _sb.from('progress').delete().eq('user_id', id);
+    if (r1.error) errs.push(r1.error.message);
+    const r2 = await _sb.from('level_scores').delete().eq('user_id', id);
+    if (r2.error) errs.push(r2.error.message);
+    const r3 = await _sb.from('profiles').delete().eq('id', id);
+    if (r3.error) errs.push(r3.error.message);
+    // Local cleanup
+    try {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('fp-progress-' + id)) localStorage.removeItem(k);
+      });
+    } catch {}
+    await _sb.auth.signOut();
+    if (errs.length) {
+      throw new Error('Some data could not be removed automatically; please email support: ' + errs.join('; '));
+    }
+  }
+
   async function resetPassword(email) {
     if (!_sb) throw new Error('Supabase is not configured yet');
     const { error } = await _sb.auth.resetPasswordForEmail(
@@ -202,8 +234,39 @@
     _syncTimer = setTimeout(() => _uploadProgress(userId, progress), 1500);
   }
 
-  async function _uploadProgress(userId, progress) {
-    if (!_sb) return;
+  // ── Offline upload queue ──────────────────────────────────────────────────
+  // If we're offline (or Supabase is briefly unreachable), parking the latest
+  // progress payload in localStorage lets us retry next time the user opens
+  // the app or comes back online. The queue holds a single pending payload
+  // per user (the most recent supersedes older ones).
+
+  const QUEUE_KEY = 'fp-pending-upload';
+
+  function _queue(userId, progress) {
+    writeJSON(QUEUE_KEY, { userId, progress, ts: Date.now() });
+  }
+  function _clearQueue() { try { localStorage.removeItem(QUEUE_KEY); } catch {} }
+  function _readQueue()  { return readJSON(QUEUE_KEY, null); }
+
+  async function _flushQueue() {
+    const q = _readQueue();
+    if (!q || !_sb || !_currentUser || q.userId !== _currentUser.id) return;
+    if (!navigator.onLine) return;
+    try {
+      await _uploadProgress(q.userId, q.progress, /*fromQueue*/ true);
+      _clearQueue();
+    } catch {/* leave queued */}
+  }
+
+  // Re-try whenever the network comes back, when the user signs in, and at
+  // initial load (handled by _init via subscribe).
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => { _flushQueue(); });
+  }
+
+  async function _uploadProgress(userId, progress, fromQueue = false) {
+    if (!_sb) { _queue(userId, progress); return; }
+    if (!navigator.onLine) { _queue(userId, progress); return; }
     try {
       const totalStars = _countStars(progress);
 
@@ -253,6 +316,7 @@
       if (_currentUser) _currentUser.totalStars = totalStars;
     } catch (e) {
       console.warn('FP_AUTH: upload error', e);
+      _queue(userId, progress);  // try again next time we're online
     }
   }
 
@@ -412,6 +476,69 @@
     return _currentUser?.name === 'Test Account';
   }
 
+  function isPremium() {
+    return !!_currentUser?.isPremium;
+  }
+
+  // Admin-only: flip is_premium on a profile (for manual grant before
+  // Stripe webhook is wired). Uses RLS, so only the Test Account can call.
+  async function setPremium(userId, value) {
+    if (!_sb) throw new Error('Supabase not configured');
+    const { error } = await _sb.from('profiles').update({ is_premium: !!value }).eq('id', userId);
+    if (error) throw new Error(error.message);
+  }
+
+  // ── Web Push subscription ─────────────────────────────────────────────────
+  // Subscribes the browser/PWA to push notifications (so the SW push handler
+  // can fire). Requires window.VAPID_PUBLIC_KEY (set in supabase-config.js
+  // alongside the URL/key) and a Supabase table `push_subscriptions` to write
+  // the endpoint to. If either is missing this function still requests
+  // permission so users see the explanatory prompt.
+  async function enablePushNotifications() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      throw new Error("This browser doesn't support push notifications.");
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Permission denied');
+
+    const reg = await navigator.serviceWorker.ready;
+    const vapid = window.VAPID_PUBLIC_KEY;
+    if (!vapid) {
+      console.warn('FP_AUTH: VAPID_PUBLIC_KEY missing — push subscription skipped');
+      return { skipped: true };
+    }
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: _urlBase64ToUint8Array(vapid),
+    });
+    if (_sb && _currentUser) {
+      await _sb.from('push_subscriptions').upsert({
+        user_id: _currentUser.id,
+        endpoint: sub.endpoint,
+        keys: sub.toJSON().keys,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'endpoint' });
+    }
+    return { subscribed: true };
+  }
+  function _urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64  = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    return Uint8Array.from(raw, c => c.charCodeAt(0));
+  }
+
+  // Admin search — by name only (RLS already lets anyone read profile rows).
+  async function adminSearchProfiles(q) {
+    if (!_sb) return { data: [], error: null };
+    const term = `%${(q || '').trim()}%`;
+    return _sb.from('profiles')
+      .select('id, name, avatar, total_stars, is_premium')
+      .ilike('name', term)
+      .limit(20);
+  }
+  window.fpAdminSearchProfiles = adminSearchProfiles;
+
   // ── Misc ──────────────────────────────────────────────────────────────────
 
   function totalStarsFromProgress(p) { return _countStars(p); }
@@ -424,7 +551,8 @@
   // ── Export ────────────────────────────────────────────────────────────────
 
   window.FP_AUTH = {
-    getActive, signOut, isAdmin,
+    getActive, signOut, isAdmin, isPremium, setPremium, deleteAccount,
+    enablePushNotifications,
     register, signIn, resetPassword,
     checkNameAvailable,
     getActiveProgress, updateActiveProgress,

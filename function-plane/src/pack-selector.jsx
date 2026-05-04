@@ -70,7 +70,7 @@ function PackSelector({ progress, onBack, onPickPack, density = 'comfortable' })
       }}>
         <PSectionLabel>Chapters</PSectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {ROMAN_PACKS.map(p => {
+          {visiblePacks(ROMAN_PACKS).map(p => {
             const lockInfo = computePackLocked(progress, p);
             const stars    = packTotalStars(progress, p.id);
             const complete = packIsComplete(progress, p.id);
@@ -85,7 +85,7 @@ function PackSelector({ progress, onBack, onPickPack, density = 'comfortable' })
         <div style={{ marginTop: 22 }}>
           <PSectionLabel sub="By function family">Themed</PSectionLabel>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {SPECIAL_PACKS.map(p => {
+            {visiblePacks(SPECIAL_PACKS).map(p => {
               const lockInfo = computePackLocked(progress, p);
               const stars    = packTotalStars(progress, p.id);
               const complete = packIsComplete(progress, p.id);

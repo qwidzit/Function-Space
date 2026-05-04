@@ -18,7 +18,7 @@ const FUNCTION_CLASSES = [
 
 function AdminScreen({ onBack, density = 'comfortable', onChanged }) {
   const padX = density === 'compact' ? 18 : 22;
-  const [view, setView]   = useAS('list');           // 'list' | 'pack' | 'level'
+  const [view, setView]   = useAS('list');           // 'list' | 'pack' | 'level' | 'users'
   const [pack, setPack]   = useAS(null);
   const [levelIndex, setLI] = useAS(0);
 
@@ -33,9 +33,22 @@ function AdminScreen({ onBack, density = 'comfortable', onChanged }) {
       onBack={() => setView('pack')}
       onChanged={onChanged}/>;
 
+  if (view === 'users')
+    return <UsersAdmin padX={padX} onBack={() => setView('list')}/>;
+
   return (
-    <ScreenFrameAS title="Admin · Packs" onBack={onBack} padX={padX}>
+    <ScreenFrameAS title="Admin" onBack={onBack} padX={padX}>
       <div style={{ padding: '14px 0 24px' }}>
+        <button onClick={() => setView('users')} style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+          padding: '12px 14px', marginBottom: 14,
+          borderRadius: 12, background: 'var(--fp-ink)', color: 'var(--fp-bg)',
+          textAlign: 'left', fontSize: 14, fontWeight: 500,
+        }}>
+          <span style={{ flex: 1 }}>Manage users / grant premium</span>
+          <Icon.Chevron dir="right" size={14} c="currentColor"/>
+        </button>
+
         <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fp-ink-3)', marginBottom: 8 }}>
           Roman packs
         </div>
@@ -48,6 +61,86 @@ function AdminScreen({ onBack, density = 'comfortable', onChanged }) {
         </div>
         {SPECIAL_PACKS.map(p => (
           <AdminPackRow key={p.id} pack={p} onClick={() => { setPack(p); setView('pack'); }}/>
+        ))}
+      </div>
+    </ScreenFrameAS>
+  );
+}
+
+// ─── Users / premium grant ─────────────────────────────────────────────────
+
+function UsersAdmin({ padX, onBack }) {
+  const [q, setQ] = useAS('');
+  const [results, setResults] = useAS([]);
+  const [busy, setBusy] = useAS(false);
+  const [msg, setMsg] = useAS('');
+
+  const search = async () => {
+    setBusy(true); setMsg('');
+    try {
+      const sb = window.FP_SB || null; // fallback
+      // Use buildLeaderboard's underlying client via a quick query
+      const { data, error } = await window.fpAdminSearchProfiles(q);
+      if (error) throw new Error(error.message);
+      setResults(data || []);
+    } catch (e) { setMsg(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const togglePremium = async (row) => {
+    const next = !row.is_premium;
+    if (!confirm(`${next ? 'Grant' : 'Revoke'} premium for ${row.name}?`)) return;
+    try {
+      await FP_AUTH.setPremium(row.id, next);
+      setResults(rs => rs.map(r => r.id === row.id ? { ...r, is_premium: next } : r));
+    } catch (e) { alert(e.message); }
+  };
+
+  return (
+    <ScreenFrameAS title="Admin · Users" onBack={onBack} padX={padX}>
+      <div style={{ padding: '18px 0 24px' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by name or email" autoFocus
+            style={{ flex:1, height:42, borderRadius:10, padding:'0 12px', fontSize:14,
+              background:'var(--fp-surface)', border:'1px solid var(--fp-line)',
+              color:'var(--fp-ink)', outline:'none' }}/>
+          <button onClick={search} disabled={busy || q.trim().length < 2} style={{
+            padding: '0 18px', height: 42, borderRadius: 10,
+            background: 'var(--fp-ink)', color: 'var(--fp-bg)',
+            fontSize: 13, fontWeight: 500, opacity: busy ? 0.6 : 1,
+          }}>{busy ? '…' : 'Search'}</button>
+        </div>
+
+        {msg && <div style={{ marginBottom: 10, fontSize: 12, color: '#e34' }}>{msg}</div>}
+
+        {results.length === 0 && !busy && q && (
+          <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: 20 }}>
+            No matches.
+          </div>
+        )}
+
+        {results.map(r => (
+          <div key={r.id} style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '12px', marginBottom: 6,
+            borderRadius: 12, background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+          }}>
+            <div style={{ width:34, height:34, borderRadius:'50%', flex:'0 0 34px',
+              background:'var(--fp-surface-2)', border:'1px solid var(--fp-line)',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>
+              {r.avatar || '🟢'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--fp-ink)' }}>{r.name}</div>
+              <div style={{ fontSize: 11, color: 'var(--fp-ink-4)' }}>{r.total_stars}★ {r.is_premium && '· Premium'}</div>
+            </div>
+            <button onClick={() => togglePremium(r)} style={{
+              padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 500,
+              background: r.is_premium ? 'transparent' : 'var(--fp-ink)',
+              color:      r.is_premium ? 'var(--fp-ink)' : 'var(--fp-bg)',
+              border: '1px solid var(--fp-line)',
+            }}>{r.is_premium ? 'Revoke' : 'Grant premium'}</button>
+          </div>
         ))}
       </div>
     </ScreenFrameAS>
@@ -82,8 +175,10 @@ function AdminPackRow({ pack, onClick }) {
 // ─── Pack editor ───────────────────────────────────────────────────────────
 
 function PackEditor({ pack, padX, onBack, onPickLevel, onChanged }) {
+  const initialHidden = !!window.FP_PACK_OVERRIDES?.[pack.id]?.is_hidden;
   const [name, setName] = useAS(pack.name || '');
   const [cls,  setCls]  = useAS(pack.allowedClass || '');
+  const [hidden, setHidden] = useAS(initialHidden);
   const [busy, setBusy] = useAS(false);
   const [msg,  setMsg]  = useAS('');
 
@@ -93,6 +188,7 @@ function PackEditor({ pack, padX, onBack, onPickLevel, onChanged }) {
       await FP_AUTH.savePackOverride(pack.id, {
         name: name.trim() || null,
         allowed_class: cls || null,
+        is_hidden: hidden,
       });
       setMsg('Saved');
       onChanged && await onChanged();
@@ -105,6 +201,22 @@ function PackEditor({ pack, padX, onBack, onPickLevel, onChanged }) {
       <div style={{ padding: '18px 0 24px' }}>
         <FieldText label="Pack name" value={name} onChange={setName}/>
         <FieldSelect label="Allowed equation class" value={cls} onChange={setCls} options={FUNCTION_CLASSES}/>
+
+        <label style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 14px', borderRadius: 12, marginBottom: 12,
+          background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+          cursor: 'pointer',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fp-ink)' }}>Hide pack from all users</div>
+            <div style={{ fontSize: 11.5, color: 'var(--fp-ink-3)', marginTop: 2 }}>
+              When checked, regular players won't see this pack at all.
+            </div>
+          </div>
+          <input type="checkbox" checked={hidden} onChange={e => setHidden(e.target.checked)}
+            style={{ width: 18, height: 18, accentColor: 'var(--fp-ink)' }}/>
+        </label>
 
         <button onClick={save} disabled={busy} style={primaryBtn(busy)}>
           {busy ? 'Saving…' : 'Save pack'}
