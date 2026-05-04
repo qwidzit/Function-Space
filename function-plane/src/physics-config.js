@@ -3,7 +3,7 @@
 // energyRetention: fraction of total speed kept after each surface contact.
 //   1.0 = no energy loss (ball rolls forever)
 //   0.0 = instant full stop on first touch
-//   Default 0.997 gives a very slight rolling friction.
+//   Default 0.9985 gives a very slight rolling friction.
 //
 // bounciness: coefficient of restitution for the surface-normal velocity component.
 //   0.0 = no bounce (ball sticks to curve, current default behaviour)
