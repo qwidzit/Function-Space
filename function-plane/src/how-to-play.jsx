@@ -31,7 +31,6 @@ function HowToPlayScreen({ onBack, density = 'comfortable' }) {
         flex: 1, overflowY: 'auto',
         padding: `20px ${padX}px`,
         paddingBottom: 'max(32px, env(safe-area-inset-bottom, 0px))',
-        display: 'flex', flexDirection: 'column', gap: 12,
       }}>
 
         <HTPCard color="#2d70b3"
@@ -163,6 +162,7 @@ function HTPCard({ color, icon, title, children, last }) {
       background: 'var(--fp-surface)',
       border: '1px solid var(--fp-line)',
       borderRadius: 18, overflow: 'hidden',
+      marginBottom: last ? 0 : 12,
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
