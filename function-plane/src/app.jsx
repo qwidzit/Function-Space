@@ -84,6 +84,25 @@ function App() {
     return () => clearTimeout(t);
   }, [syncError]);
 
+  // Global toast + confirm modal (replacements for native alert/confirm).
+  // Anywhere in the app:
+  //   window.fpToast('Saved!', { kind: 'ok' })
+  //   const ok = await window.fpConfirm({ title: '…', body: '…', danger: true })
+  const [toast,      setToast]      = useState(null);
+  const [confirmReq, setConfirmReq] = useState(null);
+  useEffect(() => {
+    window.fpToast = (msg, opts = {}) => {
+      setToast({ msg, kind: opts.kind || 'info', stamp: Date.now() });
+    };
+    window.fpConfirm = ({ title, body, confirmLabel = 'Confirm', danger = false } = {}) =>
+      new Promise(resolve => setConfirmReq({ title, body, confirmLabel, danger, resolve }));
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const updateSetting = (key, value) =>
     setSettings(s => ({ ...s, [key]: value }));
 
@@ -286,6 +305,64 @@ function App() {
           }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#e34' }}/>
             Offline — progress will sync when you reconnect
+          </div>
+        </div>
+      )}
+
+      {/* Generic toast (window.fpToast) */}
+      {toast && (
+        <div style={{
+          position: 'absolute', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: 0, right: 0,
+          display: 'flex', justifyContent: 'center', zIndex: 10001, pointerEvents: 'none',
+        }}>
+          <div style={{
+            background: toast.kind === 'error' ? '#e34' : toast.kind === 'ok' ? 'var(--fp-accent)' : 'var(--fp-ink)',
+            color: toast.kind === 'ok' ? 'var(--fp-accent-ink)' : '#fff',
+            padding: '10px 14px', margin: '0 12px',
+            borderRadius: 12, fontSize: 12.5, fontWeight: 500,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+            maxWidth: 360, textAlign: 'center', pointerEvents: 'auto',
+          }}>{toast.msg}</div>
+        </div>
+      )}
+
+      {/* Generic confirm modal (window.fpConfirm) */}
+      {confirmReq && (
+        <div onClick={() => { confirmReq.resolve(false); setConfirmReq(null); }} style={{
+          position: 'absolute', inset: 0, zIndex: 10002,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '20px', backdropFilter: 'blur(2px)',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: 'var(--fp-bg)', border: '1px solid var(--fp-line)',
+            borderRadius: 16, padding: '20px',
+            maxWidth: 340, width: '100%',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          }}>
+            {confirmReq.title && (
+              <div style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontStyle: 'italic', fontSize: 22, color: 'var(--fp-ink)',
+                letterSpacing: '-0.02em', marginBottom: 8,
+              }}>{confirmReq.title}</div>
+            )}
+            <div style={{ fontSize: 13, color: 'var(--fp-ink-3)', lineHeight: 1.55, marginBottom: 18, whiteSpace: 'pre-line' }}>
+              {confirmReq.body}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { confirmReq.resolve(false); setConfirmReq(null); }} style={{
+                flex: 1, height: 44, borderRadius: 12,
+                background: 'transparent', border: '1px solid var(--fp-line)',
+                color: 'var(--fp-ink)', fontSize: 13.5, fontWeight: 500,
+              }}>Cancel</button>
+              <button onClick={() => { confirmReq.resolve(true); setConfirmReq(null); }} style={{
+                flex: 1, height: 44, borderRadius: 12,
+                background: confirmReq.danger ? '#e34' : 'var(--fp-ink)',
+                color: confirmReq.danger ? '#fff' : 'var(--fp-bg)',
+                fontSize: 13.5, fontWeight: 500,
+              }}>{confirmReq.confirmLabel}</button>
+            </div>
           </div>
         </div>
       )}

@@ -52,12 +52,15 @@ const LEVELS = {
 function getLevelData(packId, levelIndex) {
   const base = LEVELS[`${packId}-${levelIndex}`] || LEVELS._default;
   const ov   = window.FP_LEVEL_OVERRIDES?.[`${packId}-${levelIndex}`];
-  if (!ov) return base;
+  if (!ov) return { ...base, preplaced: [] };
   return {
     ball:      (ov.ball_x != null && ov.ball_y != null) ? { x: ov.ball_x, y: ov.ball_y } : base.ball,
     stars:     Array.isArray(ov.stars) ? ov.stars : base.stars,
     scoreGoal: ov.score_goal != null ? ov.score_goal : base.scoreGoal,
     eqGoal:    ov.eq_goal    != null ? ov.eq_goal    : base.eqGoal,
+    // Pre-placed equations: visible to the player but locked. They don't
+    // count toward eqsUsed or score. Stored as a JSON array of strings.
+    preplaced: Array.isArray(ov.preplaced) ? ov.preplaced.filter(s => typeof s === 'string' && s.trim()) : [],
   };
 }
 

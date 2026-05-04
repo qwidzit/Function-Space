@@ -1,0 +1,24 @@
+{
+  "name": "function-plane",
+  "version": "1.0.0",
+  "description": "Function Plane — mobile PWA puzzle game",
+  "private": true,
+  "scripts": {
+    "cap:init":     "cap init 'Function Plane' app.functionplane --web-dir=function-plane",
+    "cap:add:android": "cap add android",
+    "cap:add:ios":     "cap add ios",
+    "cap:sync":     "cap sync",
+    "cap:open:android": "cap open android",
+    "cap:open:ios":     "cap open ios",
+    "android:build": "cap sync android && cap open android",
+    "ios:build":     "cap sync ios && cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core":    "^6.1.2",
+    "@capacitor/ios":     "^6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

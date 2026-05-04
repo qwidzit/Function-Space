@@ -1,0 +1,17 @@
+{
+  "appId": "app.functionplane",
+  "appName": "Function Plane",
+  "webDir": "function-plane",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true
+  },
+  "ios": {
+    "contentInset": "always",
+    "scrollEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
