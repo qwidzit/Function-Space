@@ -175,6 +175,33 @@
     if (_sb) await _sb.auth.signOut();
   }
 
+  // Delete the signed-in user's account. Required by Google Play (2024+).
+  // Removes: progress, level_scores, profile row. Then signs out so the local
+  // session cache is cleared. The auth.users row is removed by Supabase on
+  // cascade once the profile is deleted (FK is ON DELETE CASCADE).
+  async function deleteAccount() {
+    if (!_sb || !_currentUser) throw new Error('Not signed in');
+    const id = _currentUser.id;
+    // RLS lets a user delete their own rows
+    const errs = [];
+    const r1 = await _sb.from('progress').delete().eq('user_id', id);
+    if (r1.error) errs.push(r1.error.message);
+    const r2 = await _sb.from('level_scores').delete().eq('user_id', id);
+    if (r2.error) errs.push(r2.error.message);
+    const r3 = await _sb.from('profiles').delete().eq('id', id);
+    if (r3.error) errs.push(r3.error.message);
+    // Local cleanup
+    try {
+      Object.keys(localStorage).forEach(k => {
+        if (k.startsWith('fp-progress-' + id)) localStorage.removeItem(k);
+      });
+    } catch {}
+    await _sb.auth.signOut();
+    if (errs.length) {
+      throw new Error('Some data could not be removed automatically; please email support: ' + errs.join('; '));
+    }
+  }
+
   async function resetPassword(email) {
     if (!_sb) throw new Error('Supabase is not configured yet');
     const { error } = await _sb.auth.resetPasswordForEmail(
@@ -424,7 +451,7 @@
   // ── Export ────────────────────────────────────────────────────────────────
 
   window.FP_AUTH = {
-    getActive, signOut, isAdmin,
+    getActive, signOut, isAdmin, deleteAccount,
     register, signIn, resetPassword,
     checkNameAvailable,
     getActiveProgress, updateActiveProgress,

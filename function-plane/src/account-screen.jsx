@@ -210,8 +210,20 @@ function SignedInView({ account, progress, onBack, padX, onPremium, onAdmin }) {
 
         <PremiumCard onPremium={onPremium}/>
 
-        <button onClick={doSignOut} style={{ width:'100%', height:48, borderRadius:14, background:'transparent', border:'1px solid var(--fp-line)', color:'var(--fp-ink-2)', fontSize:13.5, fontWeight:500 }}>
+        <button onClick={doSignOut} style={{ width:'100%', height:48, borderRadius:14, background:'transparent', border:'1px solid var(--fp-line)', color:'var(--fp-ink-2)', fontSize:13.5, fontWeight:500, marginBottom:10 }}>
           Sign out
+        </button>
+
+        <button onClick={async () => {
+          const ok = confirm('Permanently delete your account?\n\nThis will remove your profile, all gameplay progress, and your leaderboard entries. This cannot be undone.');
+          if (!ok) return;
+          try { await FP_AUTH.deleteAccount(); }
+          catch (e) { alert(e.message); }
+        }} style={{
+          width:'100%', height:42, borderRadius:12, background:'transparent', border:'1px solid color-mix(in srgb, #e34 35%, var(--fp-line))',
+          color:'#e34', fontSize:12.5, fontWeight:500,
+        }}>
+          Delete account
         </button>
       </div>
     </div>

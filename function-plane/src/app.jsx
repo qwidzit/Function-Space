@@ -116,7 +116,7 @@ function App() {
   const continuePoint = useMemo(() => findContinuePoint(progress), [progress]);
 
   const navigate = (route, extra = {}) =>
-    setNav({ route, pack: null, levelIndex: 0, ...extra });
+    setNav({ route, pack: null, levelIndex: 0, legalKind: null, ...extra });
 
   const renderScreen = () => {
     const { route } = nav;
@@ -167,8 +167,13 @@ function App() {
           updateSetting={updateSetting}
           density={settings.density}
           onBack={() => navigate('main')}
+          onLegal={(kind) => navigate('legal', { legalKind: kind })}
         />
       );
+    }
+
+    if (route === 'legal') {
+      return <LegalScreen kind={nav.legalKind} density={settings.density} onBack={() => navigate('settings')}/>;
     }
 
     if (route === 'level') {
@@ -377,6 +382,7 @@ function mount() {
     typeof AchievementsScreen === 'undefined' ||
     typeof AccountScreen === 'undefined' ||
     typeof AdminScreen === 'undefined' ||
+    typeof LegalScreen === 'undefined' ||
     typeof MathKeyboard === 'undefined' ||
     typeof freshProgress === 'undefined' ||
     typeof Icon === 'undefined' ||

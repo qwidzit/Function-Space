@@ -15,7 +15,7 @@ const SETTING_HELP = {
   notifNewPacks:'Get a notification when new chapter or themed packs are released.',
 };
 
-function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortable' }) {
+function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortable', onLegal }) {
   const padX = density === 'compact' ? 18 : 22;
   const [helpFor,  setHelpFor]  = useSS(null);   // settingKey → show help popup
   const [supportOpen, setSupportOpen] = useSS(false);
@@ -89,9 +89,9 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
 
         <SSection>About</SSection>
         <SGroup>
-          <SNavRow label="Privacy policy"        onPress={() => {}} />
-          <SNavRow label="Terms of service"      onPress={() => {}} />
-          <SNavRow label="Open source licenses"  onPress={() => {}} />
+          <SNavRow label="Privacy policy"        onPress={() => onLegal && onLegal('privacy')} />
+          <SNavRow label="Terms of service"      onPress={() => onLegal && onLegal('terms')} />
+          <SNavRow label="Open source licenses"  onPress={() => onLegal && onLegal('licenses')} />
           <SNavRow label="Contact support"       onPress={() => setSupportOpen(true)} />
         </SGroup>
 
