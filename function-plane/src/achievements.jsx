@@ -77,19 +77,6 @@ const ACH_LIST = [
   },
 ];
 
-// Mock leaderboard data
-const MOCK_LEADERBOARD = [
-  { rank: 1,  name: 'FunctionMaster',  stars: 287, country: '🇺🇸' },
-  { rank: 2,  name: 'CurvePro99',      stars: 271, country: '🇩🇪' },
-  { rank: 3,  name: 'MathWizard',      stars: 264, country: '🇯🇵' },
-  { rank: 4,  name: 'SineWave',        stars: 251, country: '🇬🇧' },
-  { rank: 5,  name: 'InfiniteSlope',   stars: 238, country: '🇫🇷' },
-  { rank: 6,  name: 'XAxisHero',       stars: 219, country: '🇧🇷' },
-  { rank: 7,  name: 'TrigLegend',      stars: 201, country: '🇰🇷' },
-  { rank: 8,  name: 'PolyNomials',     stars: 188, country: '🇨🇦' },
-  { rank: 9,  name: 'EulerFan',        stars: 174, country: '🇮🇳' },
-  { rank: 10, name: 'GoldenRatio',     stars: 162, country: '🇦🇺' },
-];
 
 function AchievementsScreen({ onBack, progress, density = 'comfortable' }) {
   const padX = density === 'compact' ? 22 : 26;
@@ -208,99 +195,83 @@ function AchievementsScreen({ onBack, progress, density = 'comfortable' }) {
       )}
 
       {tab === 'leaderboard' && (
-        <div className="fp-scroll" style={{
-          flex: 1, overflowY: 'auto',
-          paddingBottom: 'max(28px, env(safe-area-inset-bottom, 0px))',
-        }}>
-          {/* Period chips */}
-          <div style={{ display: 'flex', gap: 6, padding: `10px ${padX}px 14px` }}>
-            {['All time','This month','This week'].map((p, i) => (
-              <div key={p} style={{
-                height: 26, padding: '0 12px', borderRadius: 999,
-                background: i === 0 ? 'var(--fp-surface-2)' : 'transparent',
-                border: '1px solid var(--fp-line)',
-                display: 'flex', alignItems: 'center',
-                fontSize: 11.5, color: i === 0 ? 'var(--fp-ink)' : 'var(--fp-ink-4)',
-              }}>{p}</div>
-            ))}
-          </div>
-
-          <div style={{ padding: `0 ${padX}px` }}>
-            {/* Column headers */}
-            <div style={{
-              display: 'flex', alignItems: 'center',
-              padding: '0 0 8px',
-              fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fp-ink-4)',
-            }}>
-              <div style={{ width: 32 }}>#</div>
-              <div style={{ flex: 1 }}>Player</div>
-              <div style={{ width: 48, textAlign: 'right' }}>Stars</div>
-            </div>
-
-            {MOCK_LEADERBOARD.map((row, i) => (
-              <div key={row.rank} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '11px 0',
-                borderBottom: i < MOCK_LEADERBOARD.length - 1 ? '1px solid var(--fp-line)' : 'none',
-              }}>
-                <div style={{
-                  width: 32, flex: '0 0 32px',
-                  fontFamily: "'Geist Mono', monospace",
-                  fontSize: row.rank <= 3 ? 14 : 12,
-                  fontWeight: row.rank <= 3 ? 700 : 400,
-                  color: row.rank === 1 ? '#d4a017' : row.rank === 2 ? '#9ba0a6' : row.rank === 3 ? '#b87333' : 'var(--fp-ink-4)',
-                }}>
-                  {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : row.rank}
-                </div>
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: '50%', flex: '0 0 32px',
-                    background: 'var(--fp-surface-2)', border: '1px solid var(--fp-line)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14,
-                  }}>{row.country}</div>
-                  <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--fp-ink)' }}>{row.name}</span>
-                </div>
-                <div style={{ width: 48, textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
-                  <span className="fp-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--fp-ink)' }}>{row.stars}</span>
-                  <Icon.Star size={10} c="var(--lv-star)"/>
-                </div>
-              </div>
-            ))}
-
-            {/* Your rank */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '11px 12px', margin: '12px 0',
-              borderRadius: 12,
-              background: 'var(--fp-surface)',
-              border: '1.5px solid var(--fp-ink)',
-            }}>
-              <div style={{ width: 32, flex: '0 0 32px', fontSize: 12, color: 'var(--fp-ink-3)', fontFamily: "'Geist Mono', monospace" }}>
-                —
-              </div>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: '50%', flex: '0 0 32px',
-                  background: 'var(--fp-surface-2)', border: '1px solid var(--fp-line)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Icon.User size={14} c="var(--fp-ink-3)"/>
-                </div>
-                <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--fp-ink)' }}>You</span>
-              </div>
-              <div style={{ width: 48, textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
-                <span className="fp-mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--fp-ink)' }}>{myStars}</span>
-                <Icon.Star size={10} c="var(--lv-star)"/>
-              </div>
-            </div>
-
-            <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fp-ink-4)', padding: '4px 0 8px' }}>
-              Sign in to appear on the global leaderboard
-            </div>
-          </div>
-        </div>
+        <LeaderboardTab padX={padX} myStars={myStars}/>
       )}
+    </div>
+  );
+}
+
+function LeaderboardTab({ padX, myStars }) {
+  const signedIn = !!(window.FP_AUTH && FP_AUTH.getActive());
+  const rows = window.FP_AUTH ? FP_AUTH.buildLeaderboard({ metric: 'stars' }) : [];
+
+  return (
+    <div className="fp-scroll" style={{
+      flex: 1, overflowY: 'auto',
+      paddingBottom: 'max(28px, env(safe-area-inset-bottom, 0px))',
+    }}>
+      <div style={{ padding: `14px ${padX}px 0` }}>
+        <div style={{
+          display: 'flex', alignItems: 'center',
+          padding: '0 0 8px',
+          fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fp-ink-4)',
+        }}>
+          <div style={{ width: 32 }}>#</div>
+          <div style={{ flex: 1 }}>Player</div>
+          <div style={{ width: 48, textAlign: 'right' }}>Stars</div>
+        </div>
+
+        {rows.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: '24px 0', lineHeight: 1.6 }}>
+            {signedIn
+              ? <>No friends yet.<br/>Add some from the Account screen to see them ranked here.</>
+              : <>Sign in and add friends from the Account screen<br/>to compare star totals.</>}
+          </div>
+        )}
+
+        {rows.map((row, i) => (
+          <div key={row.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: row.self ? '11px 12px' : '11px 0',
+            margin: row.self ? '6px 0' : 0,
+            borderRadius: row.self ? 12 : 0,
+            background: row.self ? 'var(--fp-surface)' : 'transparent',
+            border: row.self ? '1.5px solid var(--fp-ink)' : 'none',
+            borderBottom: !row.self && i < rows.length - 1 ? '1px solid var(--fp-line)' : (row.self ? '1.5px solid var(--fp-ink)' : 'none'),
+          }}>
+            <div style={{
+              width: 32, flex: '0 0 32px',
+              fontFamily: "'Geist Mono', monospace",
+              fontSize: row.rank <= 3 ? 14 : 12,
+              fontWeight: row.rank <= 3 ? 700 : 400,
+              color: row.rank === 1 ? '#d4a017' : row.rank === 2 ? '#9ba0a6' : row.rank === 3 ? '#b87333' : 'var(--fp-ink-4)',
+            }}>
+              {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : row.rank}
+            </div>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%', flex: '0 0 32px',
+                background: 'var(--fp-surface-2)', border: '1px solid var(--fp-line)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 16,
+              }}>{row.avatar || '🟢'}</div>
+              <span style={{ fontSize: 13.5, fontWeight: row.self ? 600 : 500, color: 'var(--fp-ink)' }}>
+                {row.self ? `${row.name} (you)` : row.name}
+              </span>
+            </div>
+            <div style={{ width: 48, textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5 }}>
+              <span className="fp-mono" style={{ fontSize: 13, fontWeight: row.self ? 700 : 600, color: 'var(--fp-ink)' }}>{row.stars}</span>
+              <Icon.Star size={10} c="var(--lv-star)"/>
+            </div>
+          </div>
+        ))}
+
+        {!signedIn && (
+          <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fp-ink-4)', padding: '14px 0 8px' }}>
+            You currently have <span className="fp-mono" style={{ color: 'var(--fp-ink-2)' }}>{myStars}</span> ★ as Guest
+          </div>
+        )}
+      </div>
     </div>
   );
 }

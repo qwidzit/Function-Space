@@ -27,14 +27,24 @@ function App() {
     }
   });
 
+  // Active account (null = guest). Re-read on FP_AUTH events.
+  const [account, setAccount] = useState(() => FP_AUTH.getActive());
+  useEffect(() => FP_AUTH.subscribe(() => setAccount(FP_AUTH.getActive())), []);
+
   const [progress, setProgress] = useState(() => {
-    try {
-      const saved = localStorage.getItem('fp-progress');
-      return saved ? JSON.parse(saved) : freshProgress();
-    } catch {
-      return freshProgress();
-    }
+    const fromAuth = FP_AUTH.getActiveProgress();
+    if (fromAuth) return fromAuth;
+    return freshProgress();
   });
+
+  // When the active account changes (sign in / out / switch), reload its progress.
+  useEffect(() => {
+    const p = FP_AUTH.getActiveProgress();
+    setProgress(p || freshProgress());
+    // Reset achievement seed so the new account's already-earned ones don't toast.
+    achInitRef.current = false;
+    prevUnlockedRef.current = new Set();
+  }, [account?.id]);
 
   const [nav, setNav] = useState({ route: 'main', pack: null, levelIndex: 0 });
 
@@ -56,9 +66,9 @@ function App() {
     localStorage.setItem('fp-settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Persist progress
+  // Persist progress (routes to active account, or guest fp-progress)
   useEffect(() => {
-    localStorage.setItem('fp-progress', JSON.stringify(progress));
+    FP_AUTH.updateActiveProgress(progress);
   }, [progress]);
 
   // Achievement unlock detection
@@ -188,7 +198,7 @@ function App() {
     }
 
     if (route === 'account') {
-      return <AccountScreen onBack={() => navigate('main')} density={settings.density}/>;
+      return <AccountScreen onBack={() => navigate('main')} density={settings.density} account={account} progress={progress}/>;
     }
 
     return (
@@ -319,7 +329,8 @@ function mount() {
     typeof AccountScreen === 'undefined' ||
     typeof MathKeyboard === 'undefined' ||
     typeof freshProgress === 'undefined' ||
-    typeof Icon === 'undefined'
+    typeof Icon === 'undefined' ||
+    typeof FP_AUTH === 'undefined'
   ) {
     return setTimeout(mount, 30);
   }

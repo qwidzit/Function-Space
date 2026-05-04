@@ -2,16 +2,25 @@
 
 const { useState: useLCState, useEffect: useLCEffect } = React;
 
-// Mock per-level leaderboard
-function mockLevelLeaderboard(levelIndex) {
-  const names = ['FunctionMaster','CurvePro99','MathWizard','SineWave','InfiniteSlope',
-                  'XAxisHero','TrigLegend','PolyNomials'];
-  const base = 25 + levelIndex * 15;
-  return names.slice(0, 6).map((name, i) => ({
-    rank: i + 1,
-    name,
-    score: base + i * 12,
-  }));
+// Per-level leaderboard from FP_AUTH (you + your friends, lower score = better).
+function buildLevelBoard(pack, levelIndex, currentScore) {
+  const rows = (window.FP_AUTH && pack)
+    ? FP_AUTH.buildLeaderboard({ metric: 'level', packId: pack.id, levelIndex })
+    : [];
+  // If currently signed-in user has a fresh score this run that beats their stored
+  // best (or no stored entry yet), make sure the displayed "self" row reflects it.
+  const me = window.FP_AUTH ? FP_AUTH.getActive() : null;
+  const selfRow = rows.find(r => r.self);
+  if (me) {
+    if (selfRow) {
+      if (currentScore != null && currentScore < selfRow.score) selfRow.score = currentScore;
+    } else if (currentScore != null) {
+      rows.push({ id: me.id, name: me.name, avatar: me.avatar, score: currentScore, self: true });
+    }
+  }
+  rows.sort((a, b) => a.score - b.score);
+  rows.forEach((r, i) => r.rank = i + 1);
+  return rows;
 }
 
 function LevelCompletePopup({
@@ -32,7 +41,8 @@ function LevelCompletePopup({
     ? (pack.type === 'roman' ? `Pack ${pack.numeral}` : pack.name)
     : 'Pack I';
 
-  const leaderboard = mockLevelLeaderboard(levelIndex);
+  const leaderboard = buildLevelBoard(pack, levelIndex, score);
+  const signedIn = !!(window.FP_AUTH && FP_AUTH.getActive());
 
   return (
     <div style={{
@@ -190,11 +200,21 @@ function LevelCompletePopup({
                 <div style={{ width: 52, textAlign: 'right' }}>Score</div>
               </div>
 
+              {leaderboard.length === 0 && (
+                <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: '16px 0', lineHeight: 1.55 }}>
+                  No scores yet. {signedIn ? 'Add friends to compare.' : 'Sign in and add friends to compare.'}
+                </div>
+              )}
+
               {leaderboard.map((row, i) => (
-                <div key={row.rank} style={{
+                <div key={row.id} style={{
                   display: 'flex', alignItems: 'center',
-                  padding: '9px 0',
-                  borderBottom: i < leaderboard.length - 1 ? '1px solid var(--fp-line)' : 'none',
+                  padding: row.self ? '9px 10px' : '9px 0',
+                  margin: row.self ? '4px 0' : 0,
+                  borderRadius: row.self ? 10 : 0,
+                  background: row.self ? 'var(--fp-surface)' : 'transparent',
+                  border: row.self ? '1.5px solid var(--fp-ink)' : 'none',
+                  borderBottom: !row.self && i < leaderboard.length - 1 ? '1px solid var(--fp-line)' : (row.self ? '1.5px solid var(--fp-ink)' : 'none'),
                 }}>
                   <div style={{
                     width: 28, flex: '0 0 28px',
@@ -205,30 +225,21 @@ function LevelCompletePopup({
                   }}>
                     {row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : row.rank}
                   </div>
-                  <div style={{ flex: 1, fontSize: 13, color: 'var(--fp-ink)', fontWeight: 500 }}>{row.name}</div>
+                  <div style={{ flex: 1, fontSize: 13, color: 'var(--fp-ink)', fontWeight: row.self ? 600 : 500, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    {row.avatar && <span style={{ fontSize: 14 }}>{row.avatar}</span>}
+                    <span>{row.self ? `${row.name} (you)` : row.name}</span>
+                  </div>
                   <div style={{ width: 52, textAlign: 'right' }}>
-                    <span className="fp-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--fp-ink)' }}>{row.score}</span>
+                    <span className="fp-mono" style={{ fontSize: 13, fontWeight: row.self ? 700 : 600, color: 'var(--fp-ink)' }}>{row.score}</span>
                   </div>
                 </div>
               ))}
 
-              {/* Your entry */}
-              <div style={{
-                display: 'flex', alignItems: 'center',
-                padding: '9px 10px', margin: '8px 0',
-                borderRadius: 10, background: 'var(--fp-surface)',
-                border: '1.5px solid var(--fp-ink)',
-              }}>
-                <div style={{ width: 28, flex: '0 0 28px', fontSize: 11, color: 'var(--fp-ink-4)', fontFamily: "'Geist Mono', monospace" }}>—</div>
-                <div style={{ flex: 1, fontSize: 13, color: 'var(--fp-ink)', fontWeight: 600 }}>You</div>
-                <div style={{ width: 52, textAlign: 'right' }}>
-                  <span className="fp-mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--fp-ink)' }}>{score}</span>
+              {!signedIn && leaderboard.length > 0 && (
+                <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fp-ink-4)', paddingTop: 10 }}>
+                  Sign in to save your score and add friends
                 </div>
-              </div>
-
-              <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--fp-ink-4)', paddingBottom: 4 }}>
-                Sign in to appear on the leaderboard
-              </div>
+              )}
             </div>
           )}
         </div>
