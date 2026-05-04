@@ -13,9 +13,7 @@ const SETTINGS_DEFAULTS = {
   snapIntegers: false,
   autoZoom: true,
   notation: 'standard',
-  notifDaily: true,
   notifNewPacks: true,
-  notifFriends: false,
 };
 
 function App() {
@@ -64,6 +62,19 @@ function App() {
   const [toastQueue, setToastQueue] = useState([]);
   const achInitRef    = useRef(false);
   const prevUnlockedRef = useRef(new Set());
+
+  // Sync-error toast (Supabase upload failures)
+  const [syncError, setSyncError] = useState(null);
+  useEffect(() => {
+    const onErr = (e) => setSyncError(e.detail || 'Sync error');
+    window.addEventListener('fp-sync-error', onErr);
+    return () => window.removeEventListener('fp-sync-error', onErr);
+  }, []);
+  useEffect(() => {
+    if (!syncError) return;
+    const t = setTimeout(() => setSyncError(null), 6000);
+    return () => clearTimeout(t);
+  }, [syncError]);
 
   const updateSetting = (key, value) =>
     setSettings(s => ({ ...s, [key]: value }));
@@ -246,6 +257,23 @@ function App() {
           name={toastQueue[0].name}
           onDone={() => setToastQueue(q => q.slice(1))}
         />
+      )}
+
+      {/* Sync-error toast */}
+      {syncError && (
+        <div style={{
+          position: 'absolute', top: 'env(safe-area-inset-top, 0px)', left: 0, right: 0,
+          display: 'flex', justifyContent: 'center', zIndex: 10000, pointerEvents: 'none',
+        }}>
+          <div style={{
+            background: '#e34', color: '#fff',
+            padding: '10px 14px', margin: '6px 12px',
+            borderRadius: 12, fontSize: 12.5, fontWeight: 500,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+            maxWidth: 360, textAlign: 'center',
+            pointerEvents: 'auto',
+          }}>{syncError}</div>
+        </div>
       )}
     </div>
   );

@@ -160,7 +160,7 @@ function PackRow({ pack, stars, locked, complete, onClick, lockInfo }) {
           fontSize: pack.numeral.length > 2 ? 22 : 26,
           color: 'var(--fp-ink)', position: 'relative', letterSpacing: '-0.02em',
         }}>
-          {locked ? <Icon.Lock size={20} c="var(--fp-ink-3)"/> : pack.numeral}
+          {pack.numeral}
         </span>
       </div>
 
@@ -185,9 +185,7 @@ function PackRow({ pack, stars, locked, complete, onClick, lockInfo }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
           {locked ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--fp-ink-3)', fontSize: 11.5 }}>
-              {lockInfo?.reason === 'prev_pack'
-                ? `${lockInfo.have}/29★ in ${lockInfo.prevPackName}`
-                : 'Locked'}
+              <Icon.Lock size={12} /> Complete previous pack
             </span>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

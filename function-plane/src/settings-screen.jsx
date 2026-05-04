@@ -1,13 +1,30 @@
 // Function Plane — Settings screen
 
+const { useState: useSS } = React;
+
+// Short explanations shown in the ⓘ popup next to gameplay & sound settings.
+const SETTING_HELP = {
+  sound:        'Plays short tones when the ball bounces, you collect a star, and on level success or failure.',
+  music:        'Background music during play. (Currently a placeholder — the music itself is not yet shipped.)',
+  haptics:      'Brief device vibration on key events (mobile only). No effect on desktop browsers.',
+  volume:       'Master volume for sound effects.',
+  gridLabels:   'Show numeric labels along the X and Y axes of the level plane.',
+  snapIntegers: 'When you drag the plane, snap the view so integer grid lines align cleanly to pixels.',
+  autoZoom:     'When you press Play, automatically zoom and pan so the ball, target stars, and your function fit on screen.',
+  notation:     'Display style for equations on the level plane. Standard uses x^2 / sqrt(); Pretty uses x² / √.',
+  notifNewPacks:'Get a notification when new chapter or themed packs are released.',
+};
+
 function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortable' }) {
   const padX = density === 'compact' ? 18 : 22;
+  const [helpFor,  setHelpFor]  = useSS(null);   // settingKey → show help popup
+  const [supportOpen, setSupportOpen] = useSS(false);
 
   return (
     <div className="fp-screen" style={{
       width: '100%', height: '100%',
       display: 'flex', flexDirection: 'column',
-      boxSizing: 'border-box',
+      boxSizing: 'border-box', position: 'relative',
     }}>
       {/* Top bar */}
       <div style={{
@@ -48,18 +65,18 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
 
         <SSection>Sound &amp; haptics</SSection>
         <SGroup>
-          <TogRow label="Sound effects" value={settings.sound}   onChange={v => updateSetting('sound', v)} />
-          <TogRow label="Music"         value={settings.music}   onChange={v => updateSetting('music', v)} />
-          <TogRow label="Haptics"       value={settings.haptics} onChange={v => updateSetting('haptics', v)} />
-          <SliderRow label="Volume" value={settings.volume} onChange={v => updateSetting('volume', v)} />
+          <TogRow label="Sound effects" helpKey="sound"   onHelp={setHelpFor} value={settings.sound}   onChange={v => updateSetting('sound', v)} />
+          <TogRow label="Music"         helpKey="music"   onHelp={setHelpFor} value={settings.music}   onChange={v => updateSetting('music', v)} />
+          <TogRow label="Haptics"       helpKey="haptics" onHelp={setHelpFor} value={settings.haptics} onChange={v => updateSetting('haptics', v)} />
+          <SliderRow label="Volume"     helpKey="volume"  onHelp={setHelpFor} value={settings.volume}  onChange={v => updateSetting('volume', v)} />
         </SGroup>
 
         <SSection>Gameplay</SSection>
         <SGroup>
-          <TogRow label="Show grid labels"  value={settings.gridLabels}    onChange={v => updateSetting('gridLabels', v)} />
-          <TogRow label="Snap to integers"  value={settings.snapIntegers}  onChange={v => updateSetting('snapIntegers', v)} />
-          <TogRow label="Auto-zoom on play" value={settings.autoZoom}      onChange={v => updateSetting('autoZoom', v)} />
-          <SegRow label="Notation"
+          <TogRow label="Show grid labels"  helpKey="gridLabels"   onHelp={setHelpFor} value={settings.gridLabels}    onChange={v => updateSetting('gridLabels', v)} />
+          <TogRow label="Snap to integers"  helpKey="snapIntegers" onHelp={setHelpFor} value={settings.snapIntegers}  onChange={v => updateSetting('snapIntegers', v)} />
+          <TogRow label="Auto-zoom on play" helpKey="autoZoom"     onHelp={setHelpFor} value={settings.autoZoom}      onChange={v => updateSetting('autoZoom', v)} />
+          <SegRow label="Notation" helpKey="notation" onHelp={setHelpFor}
             value={settings.notation}
             options={[{ value: 'standard', label: 'Standard' }, { value: 'pretty', label: 'Pretty' }]}
             onChange={v => updateSetting('notation', v)} />
@@ -67,9 +84,7 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
 
         <SSection>Notifications</SSection>
         <SGroup>
-          <TogRow label="Daily challenge"    value={settings.notifDaily}    onChange={v => updateSetting('notifDaily', v)} />
-          <TogRow label="New pack releases"  value={settings.notifNewPacks} onChange={v => updateSetting('notifNewPacks', v)} />
-          <TogRow label="Friends activity"   value={settings.notifFriends}  onChange={v => updateSetting('notifFriends', v)} />
+          <TogRow label="New pack releases" helpKey="notifNewPacks" onHelp={setHelpFor} value={settings.notifNewPacks} onChange={v => updateSetting('notifNewPacks', v)} />
         </SGroup>
 
         <SSection>About</SSection>
@@ -77,7 +92,7 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
           <SNavRow label="Privacy policy"        onPress={() => {}} />
           <SNavRow label="Terms of service"      onPress={() => {}} />
           <SNavRow label="Open source licenses"  onPress={() => {}} />
-          <SNavRow label="Contact support"       onPress={() => alert('support@functionplane.app')} />
+          <SNavRow label="Contact support"       onPress={() => setSupportOpen(true)} />
         </SGroup>
 
         <div style={{
@@ -87,7 +102,119 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
           v 1.0 · build 2
         </div>
       </div>
+
+      {helpFor && <HelpPopup settingKey={helpFor} onClose={() => setHelpFor(null)}/>}
+      {supportOpen && <SupportPopup onClose={() => setSupportOpen(false)}/>}
     </div>
+  );
+}
+
+// ─── Popups ────────────────────────────────────────────────────
+
+function HelpPopup({ settingKey, onClose }) {
+  const text = SETTING_HELP[settingKey] || 'No description available yet.';
+  return (
+    <div onClick={onClose} style={{
+      position: 'absolute', inset: 0, zIndex: 90,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '20px', backdropFilter: 'blur(2px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--fp-bg)', border: '1px solid var(--fp-line)',
+        borderRadius: 16, padding: '18px 18px 14px',
+        maxWidth: 320, width: '100%',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: 'var(--fp-surface-2)', border: '1px solid var(--fp-line)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--fp-ink)', fontSize: 14, fontWeight: 600,
+          }}>?</div>
+          <div style={{
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontStyle: 'italic', fontSize: 18, color: 'var(--fp-ink)', letterSpacing: '-0.01em',
+          }}>About this setting</div>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--fp-ink-2)', lineHeight: 1.55 }}>{text}</div>
+        <button onClick={onClose} style={{
+          marginTop: 14, width: '100%', height: 40, borderRadius: 11,
+          background: 'var(--fp-ink)', color: 'var(--fp-bg)',
+          fontSize: 13, fontWeight: 500,
+        }}>Got it</button>
+      </div>
+    </div>
+  );
+}
+
+function SupportPopup({ onClose }) {
+  const email = 'support@functionplane.app';
+  const [copied, setCopied] = useSS(false);
+  const copy = () => {
+    if (navigator.clipboard) navigator.clipboard.writeText(email).catch(() => {});
+    setCopied(true); setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div onClick={onClose} style={{
+      position: 'absolute', inset: 0, zIndex: 90,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '20px', backdropFilter: 'blur(2px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--fp-bg)', border: '1px solid var(--fp-line)',
+        borderRadius: 16, padding: '18px',
+        maxWidth: 340, width: '100%',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+      }}>
+        <div style={{
+          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontStyle: 'italic', fontSize: 22, color: 'var(--fp-ink)',
+          letterSpacing: '-0.02em', marginBottom: 8,
+        }}>Contact support</div>
+        <div style={{ fontSize: 13, color: 'var(--fp-ink-3)', lineHeight: 1.55, marginBottom: 14 }}>
+          Found a bug, have a feature request, or want to say hi? Email us:
+        </div>
+        <a href={`mailto:${email}`} style={{
+          display: 'block', padding: '12px 14px', borderRadius: 10,
+          background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+          fontFamily: "'Geist Mono', monospace", fontSize: 13, fontWeight: 500,
+          color: 'var(--fp-ink)', textAlign: 'center', textDecoration: 'none',
+          marginBottom: 10,
+        }}>{email}</a>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={copy} style={{
+            flex: 1, height: 42, borderRadius: 11,
+            background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+            color: 'var(--fp-ink)', fontSize: 13, fontWeight: 500,
+          }}>{copied ? 'Copied!' : 'Copy email'}</button>
+          <button onClick={onClose} style={{
+            flex: 1, height: 42, borderRadius: 11,
+            background: 'var(--fp-ink)', color: 'var(--fp-bg)',
+            fontSize: 13, fontWeight: 500,
+          }}>Close</button>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--fp-ink-4)', textAlign: 'center', marginTop: 10 }}>
+          (Placeholder address — replace before launch.)
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HelpButton({ k, onHelp }) {
+  if (!k || !onHelp) return null;
+  return (
+    <button onClick={(e) => { e.stopPropagation(); onHelp(k); }} aria-label="Help"
+      style={{
+        width: 22, height: 22, borderRadius: '50%',
+        border: '1px solid var(--fp-line)', background: 'var(--fp-surface-2)',
+        color: 'var(--fp-ink-3)', fontSize: 12, fontWeight: 600,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        marginLeft: 6, cursor: 'pointer', flex: '0 0 22px',
+      }}>?</button>
   );
 }
 
@@ -132,10 +259,13 @@ function sRowBase() {
   };
 }
 
-function TogRow({ label, value, onChange }) {
+function TogRow({ label, value, onChange, helpKey, onHelp }) {
   return (
     <div style={sRowBase()}>
-      <div style={{ flex: 1, fontSize: 13.5, color: 'var(--fp-ink)' }}>{label}</div>
+      <div style={{ flex: 1, fontSize: 13.5, color: 'var(--fp-ink)', display: 'flex', alignItems: 'center' }}>
+        <span>{label}</span>
+        <HelpButton k={helpKey} onHelp={onHelp}/>
+      </div>
       <button onClick={() => onChange(!value)} aria-label={label} style={{
         width: 42, height: 24, borderRadius: 999,
         background: value ? 'var(--fp-ink)' : 'var(--fp-surface-2)',
@@ -153,10 +283,13 @@ function TogRow({ label, value, onChange }) {
   );
 }
 
-function SegRow({ label, value, options, onChange }) {
+function SegRow({ label, value, options, onChange, helpKey, onHelp }) {
   return (
     <div style={sRowBase()}>
-      <div style={{ flex: 1, fontSize: 13.5, color: 'var(--fp-ink)' }}>{label}</div>
+      <div style={{ flex: 1, fontSize: 13.5, color: 'var(--fp-ink)', display: 'flex', alignItems: 'center' }}>
+        <span>{label}</span>
+        <HelpButton k={helpKey} onHelp={onHelp}/>
+      </div>
       <div style={{
         display: 'flex', padding: 2, borderRadius: 8,
         background: 'var(--fp-surface-2)', border: '1px solid var(--fp-line)',
@@ -174,10 +307,13 @@ function SegRow({ label, value, options, onChange }) {
   );
 }
 
-function SliderRow({ label, value, onChange }) {
+function SliderRow({ label, value, onChange, helpKey, onHelp }) {
   return (
     <div style={sRowBase()}>
-      <div style={{ fontSize: 13.5, color: 'var(--fp-ink)', flex: '0 0 auto' }}>{label}</div>
+      <div style={{ fontSize: 13.5, color: 'var(--fp-ink)', flex: '0 0 auto', display: 'flex', alignItems: 'center' }}>
+        <span>{label}</span>
+        <HelpButton k={helpKey} onHelp={onHelp}/>
+      </div>
       <input type="range" min="0" max="100" value={value}
         onChange={e => onChange(Number(e.target.value))}
         style={{ flex: 1, accentColor: 'var(--fp-ink)', marginLeft: 8 }}/>
