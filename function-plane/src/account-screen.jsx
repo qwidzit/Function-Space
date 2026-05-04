@@ -385,10 +385,19 @@ function ResetView({ onBack, padX }) {
 function PremiumView({ onBack, padX }) {
   const [selected, setSelected] = useACS('yearly');
   const plans = [
-    { id:'yearly',  label:'Annual',  price:'$19.99', sub:'$1.67 / month', badge:'Best value' },
-    { id:'monthly', label:'Monthly', price:'$2.99',  sub:'Billed monthly' },
-    { id:'lifetime',label:'Lifetime',price:'$39.99', sub:'One-time purchase' },
+    { id:'yearly',  label:'Annual',  price:'$9.99',  sub:'$0.83 / month',  badge:'Best value' },
+    { id:'monthly', label:'Monthly', price:'$0.99',  sub:'Billed monthly' },
+    { id:'lifetime',label:'Lifetime',price:'$14.99', sub:'One-time purchase' },
   ];
+
+  const onContinue = () => {
+    const url = (window.PREMIUM_LINKS || {})[selected];
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    alert('In-app purchases are not configured yet.\n\nThe site owner needs to:\n1. Create three Stripe Payment Links (one per plan)\n2. Paste the URLs into src/premium-config.js\n3. (Optional) Wire a webhook that flips profiles.is_premium on payment\n\nUntil then this button is a placeholder.');
+  };
 
   return (
     <ScreenFrame title="Premium" onBack={onBack} padX={padX}>
@@ -427,7 +436,7 @@ function PremiumView({ onBack, padX }) {
           ))}
         </div>
 
-        <button style={{ width:'100%', height:54, borderRadius:16, background:'var(--fp-accent)', color:'var(--fp-accent-ink)', fontSize:16, fontWeight:600 }}>Continue</button>
+        <button onClick={onContinue} style={{ width:'100%', height:54, borderRadius:16, background:'var(--fp-accent)', color:'var(--fp-accent-ink)', fontSize:16, fontWeight:600 }}>Continue</button>
         <div style={{ textAlign:'center', marginTop:14, fontSize:11, color:'var(--fp-ink-4)', lineHeight:1.6 }}>
           Payment processed securely. Cancel anytime.<br/>Restore purchases · Terms · Privacy
         </div>

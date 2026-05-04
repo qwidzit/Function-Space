@@ -11,11 +11,11 @@
 // review before you publish, especially if you want to ship to children
 // under 13 or in regulated regions (EU, UK, California, Brazil).
 
-const LEGAL_PUBLISHER  = '[YOUR LEGAL NAME / COMPANY]';
-const LEGAL_JURIS      = '[YOUR COUNTRY / STATE OF RESIDENCE]';
-const LEGAL_EMAIL      = 'support@functionplane.app';   // placeholder
-const LEGAL_WEBSITE    = 'https://functionplane.app';   // placeholder
-const LEGAL_EFFECTIVE  = '[EFFECTIVE DATE]';
+const LEGAL_PUBLISHER  = '[YOUR LEGAL NAME]';                       // TODO: fill before launch
+const LEGAL_JURIS      = 'the Netherlands';
+const LEGAL_EMAIL      = 'functionplane.support@gmail.com';
+const LEGAL_WEBSITE    = '';                                        // TODO: fill before launch
+const LEGAL_EFFECTIVE  = '4 May 2026';
 const APP_NAME         = 'Function Plane';
 
 // ── Privacy Policy ────────────────────────────────────────────────────────

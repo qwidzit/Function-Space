@@ -75,7 +75,16 @@ function getPack(packId) {
     ...base,
     name:         ov.name          || base.name,
     allowedClass: ov.allowed_class || base.allowedClass,
+    isHidden:     !!ov.is_hidden,
   };
+}
+
+// Filtered list of packs visible to the current user. Admins see everything,
+// regular users get hidden packs filtered out.
+function visiblePacks(packs) {
+  const isAdmin = window.FP_AUTH && FP_AUTH.isAdmin && FP_AUTH.isAdmin();
+  if (isAdmin) return packs;
+  return packs.filter(p => !window.FP_PACK_OVERRIDES?.[p.id]?.is_hidden);
 }
 
 // Apply overrides fetched from Supabase. Mutates packs in place so existing
@@ -154,6 +163,9 @@ function totalStarsAll(progress) {
 
 // Returns { locked: bool, reason: 'stars'|'prev_pack', need?: number, have?: number, prevPackName?: string }
 function computePackLocked(progress, pack) {
+  // Premium players have everything unlocked; admins also get full access for testing.
+  if (window.FP_AUTH && (FP_AUTH.isPremium?.() || FP_AUTH.isAdmin?.())) return { locked: false };
+
   const id = pack.id;
 
   // Special packs — star threshold
@@ -201,7 +213,7 @@ const LEVEL_GRAPH = ['I','II','III','IV','V','VI','VII','VIII','IX','X','lin','q
 Object.assign(window, {
   ROMAN_PACKS, SPECIAL_PACKS, LEVELS,
   SPECIAL_UNLOCK_STARS,
-  getLevelData, getLevelName, getPack, applyOverrides,
+  getLevelData, getLevelName, getPack, visiblePacks, applyOverrides,
   freshProgress, buildProgress,
   packTotalStars, packIsLocked, packIsComplete, totalStarsAll,
   computePackLocked,

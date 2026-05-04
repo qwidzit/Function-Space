@@ -34,6 +34,36 @@ function classifyEquation(expr) {
   return score;
 }
 
+// Returns 'linear' | 'quadratic' | 'cubic' | 'trig' | 'exp' | 'inverseTrig' | 'log' | 'unknown'
+function detectClass(expr) {
+  if (!expr || !expr.trim()) return null;
+  const e = expr.toLowerCase().replace(/\s+/g, '');
+  if (/\b(asin|acos|atan)\(/.test(e)) return 'inverseTrig';
+  if (/\bexp\(/.test(e) || /[^a-z]e\^/.test(e) || /^e\^/.test(e)) return 'exp';
+  if (/\b(log|ln)\(/.test(e)) return 'log';
+  if (/\b(sin|cos|tan)\(/.test(e)) return 'trig';
+  let maxDeg = 0;
+  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)/g))
+    maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2]));
+  if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
+  if (maxDeg >= 3) return 'cubic';
+  if (maxDeg === 2) return 'quadratic';
+  if (/\bx\b/.test(e)) return 'linear';
+  return 'unknown';
+}
+window.detectClass = detectClass;
+
+// Some allowed-class values group multiple detected classes together — e.g.
+// the 'exp' themed pack lets you use both exp() and log/ln.
+function classMatches(allowed, detected) {
+  if (!allowed) return true;
+  if (!detected) return true;
+  if (allowed === detected) return true;
+  if (allowed === 'exp' && (detected === 'exp' || detected === 'log')) return true;
+  if (allowed === 'trig' && (detected === 'trig' || detected === 'inverseTrig')) return true;
+  return false;
+}
+
 function computeScore(equations) {
   const active = equations.filter(e => e.fn);
   if (active.length === 0) return 0;
@@ -204,8 +234,25 @@ function physicsStep(ph, explFns, dt) {
 }
 
 // ─── Coordinate plane ─────────────────────────────────────────
-function CoordPlane({ width, height, equations, ballPos, simStars, startPos }) {
+function CoordPlane({ width, height, equations, ballPos, simStars, startPos, autoZoomTrigger, autoZoomEnabled, levelStars }) {
   const [view, setView] = useSL({ cx:0, cy:0, scale:40 });
+
+  // Auto-zoom: when Play is pressed (autoZoomTrigger increments), fit the
+  // ball start position + all target stars into view.
+  useEL(() => {
+    if (!autoZoomEnabled || !startPos || !levelStars || width <= 0 || height <= 0) return;
+    if (autoZoomTrigger == null) return;
+    const xs = [startPos.x, ...levelStars.map(s => s.x)];
+    const ys = [startPos.y, ...levelStars.map(s => s.y)];
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const padX = Math.max(2, (maxX - minX) * 0.3);
+    const padY = Math.max(2, (maxY - minY) * 0.4);
+    const w = (maxX - minX) + padX*2;
+    const h = (maxY - minY) + padY*2;
+    const scale = Math.max(8, Math.min(120, Math.min(width / w, height / h)));
+    setView({ cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, scale });
+  }, [autoZoomTrigger]);
   const svgRef    = useRL(null);
   const ptrsRef   = useRL({});
   const panRef    = useRL(null);  // { sx, sy, cx, cy }
@@ -431,7 +478,7 @@ function ZBtn({ children, onClick, sm }) {
   );
 }
 
-function PlaneFiller({ equations, ballPos, simStars, startPos }) {
+function PlaneFiller({ equations, ballPos, simStars, startPos, autoZoomTrigger, autoZoomEnabled, levelStars }) {
   const ref = useRL(null);
   const [size, setSize] = useSL({ w:360, h:300 });
   useEL(() => {
@@ -447,7 +494,9 @@ function PlaneFiller({ equations, ballPos, simStars, startPos }) {
     <div ref={ref} style={{ position:'absolute', inset:0 }}>
       <CoordPlane width={size.w} height={size.h}
         equations={equations} ballPos={ballPos}
-        simStars={simStars} startPos={startPos}/>
+        simStars={simStars} startPos={startPos}
+        autoZoomTrigger={autoZoomTrigger} autoZoomEnabled={autoZoomEnabled}
+        levelStars={levelStars}/>
     </div>
   );
 }
@@ -528,11 +577,31 @@ function DomainEditor({ domain, onChange }) {
   );
 }
 
+// ─── Pretty-print expressions ─────────────────────────────────
+// Visually replace x^2 with x², sqrt() with √, *, pi etc.  The transformation
+// is one-way (display-only) — the original raw string stays in eq.expr so
+// the parser keeps working unchanged.
+function prettifyExpr(s) {
+  if (!s) return s;
+  return s
+    .replace(/\bsqrt\(/g, '√(')
+    .replace(/\bpi\b/g, 'π')
+    .replace(/\*/g, '·')
+    .replace(/<=/g, '≤').replace(/>=/g, '≥')
+    .replace(/\^(-?\d)/g, (_, d) => {
+      const map = {'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+      return [...d].map(c => map[c] || ('^'+c)).join('');
+    });
+}
+window.prettifyExpr = prettifyExpr;
+
 // ─── Equation row ─────────────────────────────────────────────
-function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
+function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) {
   const inputRef = useRL(null);
   const [domOpen, setDomOpen] = useSL(false);
+  const [focused, setFocused] = useSL(false);
   const valid = !eq.expr.trim() || eq.fn != null;
+  const showPretty = notation === 'pretty' && !focused && eq.expr;
 
   return (
     <div style={{ borderTop:'1px solid var(--lv-line)' }}>
@@ -549,21 +618,34 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
           }}>{idx+1}</span>
         </button>
 
-        <input
-          ref={inputRef}
-          value={eq.expr}
-          onChange={e => onChange({ expr: e.target.value })}
-          onFocus={() => !disabled && onActivate(inputRef)}
-          disabled={disabled}
-          inputMode="none"
-          spellCheck={false}
-          placeholder="e.g.  y = sin(x)"
-          style={{
-            flex:1, minWidth:0, background:'transparent', border:0, outline:0,
-            fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:14,
-            color: valid ? 'var(--fp-ink)' : '#c74440',
-            padding:'10px 0',
-          }}/>
+        <div style={{ flex:1, minWidth:0, position:'relative' }}>
+          <input
+            ref={inputRef}
+            value={eq.expr}
+            onChange={e => onChange({ expr: e.target.value })}
+            onFocus={() => { setFocused(true); !disabled && onActivate(inputRef); }}
+            onBlur={() => setFocused(false)}
+            disabled={disabled}
+            inputMode="none"
+            spellCheck={false}
+            placeholder={notation === 'pretty' ? 'e.g.  y = sin(x)' : 'e.g.  y = sin(x)'}
+            style={{
+              width:'100%', background:'transparent', border:0, outline:0,
+              fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:14,
+              color: valid ? 'var(--fp-ink)' : '#c74440',
+              padding:'10px 0', visibility: showPretty ? 'hidden' : 'visible',
+            }}/>
+          {showPretty && (
+            <div onClick={() => inputRef.current?.focus()} style={{
+              position:'absolute', left:0, right:0, top:0, bottom:0,
+              display:'flex', alignItems:'center',
+              fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:14,
+              color: valid ? 'var(--fp-ink)' : '#c74440',
+              cursor: disabled ? 'default' : 'text',
+              overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis',
+            }}>{prettifyExpr(eq.expr)}</div>
+          )}
+        </div>
 
         <button onPointerDown={e=>{e.preventDefault(); setDomOpen(o=>!o);}}
           title="Restrict domain"
@@ -595,7 +677,7 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate }) {
 }
 
 // ─── Equations panel ──────────────────────────────────────────
-function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled }) {
+function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled, notation, allowedClass, classWarning }) {
   const activeInputRef = useRL(null);
   const [activeId,  setActiveId]  = useSL(null);
   const [kbVisible, setKbVisible] = useSL(true);
@@ -683,10 +765,25 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled 
         </div>
       </div>
 
+      {/* Allowed-class banner for themed packs */}
+      {allowedClass && classWarning && (
+        <div style={{
+          padding: '8px 14px', fontSize: 11.5, lineHeight: 1.45,
+          background: 'color-mix(in srgb, #e34 14%, transparent)',
+          color: '#e34', borderTop: '1px solid var(--lv-line)',
+        }}>{classWarning}</div>
+      )}
+      {allowedClass && !classWarning && (
+        <div style={{
+          padding: '6px 14px', fontSize: 11, color: 'var(--fp-ink-3)',
+          borderTop: '1px solid var(--lv-line)',
+        }}>This themed pack only allows <strong style={{ color:'var(--fp-ink)' }}>{allowedClass}</strong> equations.</div>
+      )}
+
       {/* Rows */}
       <div className="fp-scroll" style={{ flex:1, overflowY:'auto', paddingBottom:6 }}>
         {equations.map((e,i) => (
-          <EqRow key={e.id} idx={i} eq={e} disabled={disabled}
+          <EqRow key={e.id} idx={i} eq={e} disabled={disabled} notation={notation}
             onChange={p=>update(e.id,p)} onRemove={()=>remove(e.id)}
             onActivate={ref=>activate(e.id,ref)}/>
         ))}
@@ -747,11 +844,29 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
     setElapsed(0);
   };
 
+  const [autoZoomTrigger, setAutoZoomTrigger] = useSL(0);
+
+  // Themed-pack equation-class enforcement
+  const packAllowedClass = (window.getPack ? getPack(pack.id)?.allowedClass : pack.allowedClass) || null;
+  const classWarning = useML(() => {
+    if (!packAllowedClass) return null;
+    const offenders = equations.filter(e => e.fn).map(e => ({
+      expr: e.expr, cls: detectClass(e.expr),
+    })).filter(({ cls }) => !classMatches(packAllowedClass, cls));
+    if (offenders.length === 0) return null;
+    return `Only ${packAllowedClass} equations are allowed in this pack — please remove or change the others.`;
+  }, [equations, packAllowedClass]);
+
   const handlePlay = () => {
     if (running) {
       cancelAnimationFrame(animRef.current);
       setRunning(false);
       resetSim();
+      return;
+    }
+    if (classWarning) {
+      setMissMsg(true);
+      setTimeout(() => setMissMsg(false), 2200);
       return;
     }
     physRef.current = {
@@ -764,6 +879,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
     setElapsed(0);
     setCompleted(null);
     setRunning(true);
+    if (settings?.autoZoom) setAutoZoomTrigger(t => t + 1);
     hap(15);
   };
 
@@ -915,14 +1031,19 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       }}>
         <PlaneFiller
           equations={equations} ballPos={ballPos}
-          simStars={simStars} startPos={levelData.ball}/>
+          simStars={simStars} startPos={levelData.ball}
+          autoZoomTrigger={autoZoomTrigger} autoZoomEnabled={settings?.autoZoom !== false}
+          levelStars={levelData.stars}/>
       </div>
 
       {/* Equations panel */}
       <EquationsPanel
         equations={equations} setEquations={setEquations}
         expanded={panelOpen} onToggle={()=>setPanelOpen(o=>!o)}
-        disabled={running}/>
+        disabled={running}
+        notation={settings?.notation || 'standard'}
+        allowedClass={packAllowedClass}
+        classWarning={classWarning}/>
 
       {/* Completion popup */}
       {completed && (

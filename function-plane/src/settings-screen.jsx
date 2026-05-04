@@ -5,11 +5,9 @@ const { useState: useSS } = React;
 // Short explanations shown in the ⓘ popup next to gameplay & sound settings.
 const SETTING_HELP = {
   sound:        'Plays short tones when the ball bounces, you collect a star, and on level success or failure.',
-  music:        'Background music during play. (Currently a placeholder — the music itself is not yet shipped.)',
   haptics:      'Brief device vibration on key events (mobile only). No effect on desktop browsers.',
   volume:       'Master volume for sound effects.',
   gridLabels:   'Show numeric labels along the X and Y axes of the level plane.',
-  snapIntegers: 'When you drag the plane, snap the view so integer grid lines align cleanly to pixels.',
   autoZoom:     'When you press Play, automatically zoom and pan so the ball, target stars, and your function fit on screen.',
   notation:     'Display style for equations on the level plane. Standard uses x^2 / sqrt(); Pretty uses x² / √.',
   notifNewPacks:'Get a notification when new chapter or themed packs are released.',
@@ -66,7 +64,6 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
         <SSection>Sound &amp; haptics</SSection>
         <SGroup>
           <TogRow label="Sound effects" helpKey="sound"   onHelp={setHelpFor} value={settings.sound}   onChange={v => updateSetting('sound', v)} />
-          <TogRow label="Music"         helpKey="music"   onHelp={setHelpFor} value={settings.music}   onChange={v => updateSetting('music', v)} />
           <TogRow label="Haptics"       helpKey="haptics" onHelp={setHelpFor} value={settings.haptics} onChange={v => updateSetting('haptics', v)} />
           <SliderRow label="Volume"     helpKey="volume"  onHelp={setHelpFor} value={settings.volume}  onChange={v => updateSetting('volume', v)} />
         </SGroup>
@@ -74,7 +71,6 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
         <SSection>Gameplay</SSection>
         <SGroup>
           <TogRow label="Show grid labels"  helpKey="gridLabels"   onHelp={setHelpFor} value={settings.gridLabels}    onChange={v => updateSetting('gridLabels', v)} />
-          <TogRow label="Snap to integers"  helpKey="snapIntegers" onHelp={setHelpFor} value={settings.snapIntegers}  onChange={v => updateSetting('snapIntegers', v)} />
           <TogRow label="Auto-zoom on play" helpKey="autoZoom"     onHelp={setHelpFor} value={settings.autoZoom}      onChange={v => updateSetting('autoZoom', v)} />
           <SegRow label="Notation" helpKey="notation" onHelp={setHelpFor}
             value={settings.notation}
@@ -84,7 +80,14 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
 
         <SSection>Notifications</SSection>
         <SGroup>
-          <TogRow label="New pack releases" helpKey="notifNewPacks" onHelp={setHelpFor} value={settings.notifNewPacks} onChange={v => updateSetting('notifNewPacks', v)} />
+          <TogRow label="New pack releases" helpKey="notifNewPacks" onHelp={setHelpFor} value={settings.notifNewPacks}
+            onChange={async v => {
+              if (v) {
+                try { await window.FP_AUTH?.enablePushNotifications?.(); }
+                catch (e) { alert(e.message); v = false; }
+              }
+              updateSetting('notifNewPacks', v);
+            }} />
         </SGroup>
 
         <SSection>About</SSection>
@@ -150,7 +153,7 @@ function HelpPopup({ settingKey, onClose }) {
 }
 
 function SupportPopup({ onClose }) {
-  const email = 'support@functionplane.app';
+  const email = 'functionplane.support@gmail.com';
   const [copied, setCopied] = useSS(false);
   const copy = () => {
     if (navigator.clipboard) navigator.clipboard.writeText(email).catch(() => {});
@@ -195,9 +198,6 @@ function SupportPopup({ onClose }) {
             background: 'var(--fp-ink)', color: 'var(--fp-bg)',
             fontSize: 13, fontWeight: 500,
           }}>Close</button>
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--fp-ink-4)', textAlign: 'center', marginTop: 10 }}>
-          (Placeholder address — replace before launch.)
         </div>
       </div>
     </div>

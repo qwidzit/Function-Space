@@ -6,11 +6,9 @@ const SETTINGS_DEFAULTS = {
   theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   density: 'comfortable',
   sound: true,
-  music: false,
   haptics: true,
   volume: 70,
   gridLabels: true,
-  snapIntegers: false,
   autoZoom: true,
   notation: 'standard',
   notifNewPacks: true,
@@ -62,6 +60,16 @@ function App() {
   const [toastQueue, setToastQueue] = useState([]);
   const achInitRef    = useRef(false);
   const prevUnlockedRef = useRef(new Set());
+
+  // Online / offline indicator (so the player knows their progress is queued)
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
+  }, []);
 
   // Sync-error toast (Supabase upload failures)
   const [syncError, setSyncError] = useState(null);
@@ -262,6 +270,24 @@ function App() {
           name={toastQueue[0].name}
           onDone={() => setToastQueue(q => q.slice(1))}
         />
+      )}
+
+      {/* Offline indicator (shows only when offline) */}
+      {!online && (
+        <div style={{
+          position: 'absolute', bottom: 'env(safe-area-inset-bottom, 0px)', left: 0, right: 0,
+          display: 'flex', justifyContent: 'center', zIndex: 9998, pointerEvents: 'none',
+        }}>
+          <div style={{
+            background: 'var(--fp-ink)', color: 'var(--fp-bg)',
+            padding: '6px 12px', margin: '6px',
+            borderRadius: 999, fontSize: 11.5, fontWeight: 500,
+            opacity: 0.9, display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#e34' }}/>
+            Offline — progress will sync when you reconnect
+          </div>
+        </div>
       )}
 
       {/* Sync-error toast */}
