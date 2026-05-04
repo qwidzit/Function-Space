@@ -6,11 +6,13 @@ function LevelCompletePopup({
   pack, levelIndex,
   starsRating, score,
   prevBest, isNewBest, totalStars,
+  time, prevBestTime, isNewBestTime,
   onReplay, onNext, onClose,
 }) {
   const [revealed, setRevealed] = useLCState(false);
-  const [tab, setTab] = useLCState('score'); // 'score' | 'leaderboard'
-  const [board, setBoard]           = useLCState(null);  // null = not yet loaded
+  const [tab, setTab] = useLCState('score'); // 'score' | 'scoreboard' | 'timeboard'
+  const [scoreboard, setScoreboard] = useLCState(null);
+  const [timeboard,  setTimeboard]  = useLCState(null);
   const [boardLoading, setBoardLoading] = useLCState(false);
 
   useLCEffect(() => {
@@ -18,30 +20,37 @@ function LevelCompletePopup({
     return () => clearTimeout(t);
   }, []);
 
-  // Load leaderboard async when the tab is first opened
+  // Load leaderboard async when its tab is first opened
   useLCEffect(() => {
-    if (tab !== 'leaderboard' || board !== null) return;
+    if (tab === 'score') return;
+    const isTime = tab === 'timeboard';
+    if ((isTime ? timeboard : scoreboard) !== null) return;
     setBoardLoading(true);
     const packId = pack?.id;
-    FP_AUTH.buildLeaderboard({ metric: 'level', packId, levelIndex })
+    FP_AUTH.buildLeaderboard({ metric: isTime ? 'time' : 'level', packId, levelIndex })
       .then(rows => {
-        // If this run's score beats or fills in the self row, update it in place
         const me = FP_AUTH.getActive();
         if (me) {
           const selfRow = rows.find(r => r.self);
-          if (selfRow) {
-            if (score != null && score < selfRow.score) selfRow.score = score;
-          } else if (score != null) {
-            rows.push({ id: me.id, name: me.name, avatar: me.avatar, score, rank: null, self: true });
+          if (isTime) {
+            if (selfRow) { if (time != null && time < selfRow.time) selfRow.time = time; }
+            else if (time != null) rows.push({ id: me.id, name: me.name, avatar: me.avatar, time, rank: null, self: true });
+            rows.sort((a, b) => (a.time ?? Infinity) - (b.time ?? Infinity));
+          } else {
+            if (selfRow) { if (score != null && score < selfRow.score) selfRow.score = score; }
+            else if (score != null) rows.push({ id: me.id, name: me.name, avatar: me.avatar, score, rank: null, self: true });
+            rows.sort((a, b) => a.score - b.score);
           }
-          rows.sort((a, b) => a.score - b.score);
           rows.forEach((r, i) => r.rank = i + 1);
         }
-        setBoard(rows);
+        if (isTime) setTimeboard(rows); else setScoreboard(rows);
       })
-      .catch(() => setBoard([]))
+      .catch(() => { if (isTime) setTimeboard([]); else setScoreboard([]); })
       .finally(() => setBoardLoading(false));
   }, [tab]);
+
+  const board = tab === 'timeboard' ? timeboard : (tab === 'scoreboard' ? scoreboard : null);
+  const isTimeTab = tab === 'timeboard';
 
   const packLabel = pack
     ? (pack.type === 'roman' ? `Pack ${pack.numeral}` : pack.name)
@@ -125,12 +134,12 @@ function LevelCompletePopup({
 
           {/* Tab bar */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
-            {[['score','Score'],['leaderboard','Leaderboard']].map(([id, label]) => (
+            {[['score','Score'],['scoreboard','Best scores'],['timeboard','Best times']].map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{
-                height: 30, padding: '0 14px', borderRadius: 999,
+                height: 30, padding: '0 12px', borderRadius: 999,
                 background: tab === id ? 'var(--fp-ink)' : 'transparent',
                 color: tab === id ? 'var(--fp-bg)' : 'var(--fp-ink-3)',
-                fontSize: 12, fontWeight: 500,
+                fontSize: 11.5, fontWeight: 500,
                 border: tab === id ? 'none' : '1px solid var(--fp-line)',
               }}>{label}</button>
             ))}
@@ -190,10 +199,48 @@ function LevelCompletePopup({
                   </div>
                 )}
               </div>
+
+              {/* Time block */}
+              {time != null && (
+                <div style={{
+                  background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+                  borderRadius: 16, padding: '14px 18px', marginBottom: 16,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                      <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fp-ink-3)', marginBottom: 3 }}>
+                        Time
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                        <span className="fp-mono" style={{ fontSize: 26, fontWeight: 600, color: 'var(--fp-ink)', letterSpacing: '-0.03em' }}>
+                          {time.toFixed(2)}s
+                        </span>
+                        {isNewBestTime && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
+                            textTransform: 'uppercase', color: 'var(--fp-accent)',
+                            padding: '2px 7px', borderRadius: 999,
+                            background: 'color-mix(in srgb, var(--fp-accent) 14%, transparent)',
+                          }}>Fastest yet</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {prevBestTime != null && !isNewBestTime && (
+                    <div style={{
+                      marginTop: 10, paddingTop: 10,
+                      borderTop: '1px solid var(--fp-line)',
+                      fontSize: 11.5, color: 'var(--fp-ink-3)',
+                    }}>
+                      Previous best: <span className="fp-mono" style={{ color: 'var(--fp-ink-2)' }}>{prevBestTime.toFixed(2)}s</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {tab === 'leaderboard' && (
+          {(tab === 'scoreboard' || tab === 'timeboard') && (
             <div style={{ marginBottom: 16 }}>
               {/* Column headers */}
               <div style={{
@@ -202,7 +249,7 @@ function LevelCompletePopup({
               }}>
                 <div style={{ width: 28 }}>#</div>
                 <div style={{ flex: 1 }}>Player</div>
-                <div style={{ width: 52, textAlign: 'right' }}>Score</div>
+                <div style={{ width: 60, textAlign: 'right' }}>{isTimeTab ? 'Time' : 'Score'}</div>
               </div>
 
               {boardLoading && (
@@ -240,8 +287,10 @@ function LevelCompletePopup({
                     {row.avatar && <span style={{ fontSize: 14 }}>{row.avatar}</span>}
                     <span>{row.self ? `${row.name} (you)` : row.name}</span>
                   </div>
-                  <div style={{ width: 52, textAlign: 'right' }}>
-                    <span className="fp-mono" style={{ fontSize: 13, fontWeight: row.self ? 700 : 600, color: 'var(--fp-ink)' }}>{row.score}</span>
+                  <div style={{ width: 60, textAlign: 'right' }}>
+                    <span className="fp-mono" style={{ fontSize: 13, fontWeight: row.self ? 700 : 600, color: 'var(--fp-ink)' }}>
+                      {isTimeTab ? (row.time != null ? row.time.toFixed(2)+'s' : '—') : row.score}
+                    </span>
                   </div>
                 </div>
               ))}
