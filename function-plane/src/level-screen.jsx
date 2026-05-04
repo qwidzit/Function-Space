@@ -38,7 +38,7 @@ function computeScore(equations) {
   const active = equations.filter(e => e.fn);
   if (active.length === 0) return 0;
   const complexity = active.reduce((s, e) => s + classifyEquation(e.expr), 0);
-  return complexity + active.length * 20 + 20;
+  return complexity + active.length * 20;
 }
 
 function starRating(eqsUsed, score, eqGoal, scoreGoal) {
@@ -174,7 +174,10 @@ function physicsStep(ph, explFns, dt) {
         ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
         ph.vx *= PHYSICS_CONFIG.energyRetention;
         ph.vy *= PHYSICS_CONFIG.energyRetention;
-        ph.bounced = true;
+        // Only fire a "bounce" event for impacts above threshold — sliding
+        // contacts produce a tiny normal velocity each step and would otherwise
+        // spam the SFX. 1.5 m/s ≈ a real audible bounce.
+        if (-vn > 1.5) ph.bounced = true;
       }
     }
   }
@@ -718,15 +721,18 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   const equationsRef = useRL(equations);
   equationsRef.current = equations;
 
-  const best      = progress?.[pack.id]?.best?.[levelIndex]  ?? null;
-  const prevStars = progress?.[pack.id]?.stars?.[levelIndex] ?? -1;
+  const best      = progress?.[pack.id]?.best?.[levelIndex]      ?? null;
+  const bestTime  = progress?.[pack.id]?.bestTime?.[levelIndex]  ?? null;
+  const prevStars = progress?.[pack.id]?.stars?.[levelIndex]     ?? -1;
   const eqsUsed   = equations.filter(e=>e.fn).length;
   const liveScore = computeScore(equations);
+  const [elapsed, setElapsed] = useSL(0);
 
   const resetSim = () => {
     setBallPos({ ...levelData.ball });
     setSimStars(levelData.stars.map(s=>({...s,collected:false})));
     setCollectedCount(0);
+    setElapsed(0);
   };
 
   const handlePlay = () => {
@@ -743,6 +749,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
     };
     setSimStars(levelData.stars.map(s=>({...s,collected:false})));
     setCollectedCount(0);
+    setElapsed(0);
     setCompleted(null);
     setRunning(true);
     hap(15);
@@ -760,7 +767,8 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
 
     const frame = ts => {
       if (!ph.startTs) ph.startTs = ts;
-      const elapsed = (ts-ph.startTs)/1000;
+      const elapsedS = (ts-ph.startTs)/1000;
+      setElapsed(elapsedS);
 
       const explFns = equationsRef.current
         .filter(e => e.fn && e.visible && !e.isImplicit)
@@ -779,7 +787,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       setCollectedCount(collected);
       setSimStars([...ph.stars]);
 
-      const done = ph.y < FALL_LIMIT || elapsed > TIME_LIMIT;
+      const done = ph.y < FALL_LIMIT || elapsedS > TIME_LIMIT;
       if (done) {
         cancelAnimationFrame(animRef.current);
         setRunning(false);
@@ -792,14 +800,20 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
           return;
         }
 
-        const eqsN   = equationsRef.current.filter(e=>e.fn).length;
-        const sc     = computeScore(equationsRef.current);
-        const rating = starRating(eqsN, sc, eqGoal, scoreGoal);
-        const isNew  = best == null || sc < best;
+        const eqsN     = equationsRef.current.filter(e=>e.fn).length;
+        const sc       = computeScore(equationsRef.current);
+        const finishT  = +elapsedS.toFixed(2);
+        const rating   = starRating(eqsN, sc, eqGoal, scoreGoal);
+        const isNew    = best == null || sc < best;
+        const isNewT   = bestTime == null || finishT < bestTime;
 
         sfx('levelComplete'); hap(20);
-        setCompleted({ score:sc, starsRating:rating, prevBest:best, isNewBest:isNew });
-        onComplete(rating, sc);
+        setCompleted({
+          score: sc, starsRating: rating,
+          prevBest: best, isNewBest: isNew,
+          time: finishT, prevBestTime: bestTime, isNewBestTime: isNewT,
+        });
+        onComplete(rating, sc, finishT);
         return;
       }
       animRef.current = requestAnimationFrame(frame);
@@ -832,12 +846,12 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, minWidth:0, flex:1 }}>
           <div style={{ fontSize:10, letterSpacing:'0.1em', textTransform:'uppercase',
             color:'var(--fp-ink-3)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'100%' }}>
-            {pack.type==='roman'?`Pack ${pack.numeral}`:pack.name} · Level {levelIndex+1}
+            {pack.type==='roman'?`Pack ${pack.numeral}`:(getPack(pack.id)?.name || pack.name)} · Level {levelIndex+1}
           </div>
           <div style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontStyle:'italic',
             fontSize:16, lineHeight:1, color:'var(--fp-ink)', letterSpacing:'-0.02em',
             whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'100%' }}>
-            {LEVEL_NAMES[levelIndex] || `Level ${levelIndex+1}`}
+            {getLevelName(pack.id, levelIndex)}
           </div>
         </div>
 
@@ -851,9 +865,9 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       {/* HUD */}
       <div style={{ padding:'0 14px 6px', flex:'0 0 auto', background:'var(--lv-bg)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-          <HudChip label="Best"  value={best==null?'—':best}/>
           <HudChip label="Score" value={eqsUsed>0?liveScore:'—'}/>
           <HudChip label="Stars" value={`${collectedCount}/${totalStars}`}/>
+          <HudChip label="Time"  value={running ? elapsed.toFixed(1)+'s' : (bestTime==null?'—':bestTime.toFixed(1)+'s')}/>
           <button onClick={handlePlay} style={{
             marginLeft:'auto',
             display:'flex', alignItems:'center', gap:7,
@@ -906,6 +920,9 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
           score={completed.score}
           prevBest={completed.prevBest}
           isNewBest={completed.isNewBest}
+          time={completed.time}
+          prevBestTime={completed.prevBestTime}
+          isNewBestTime={completed.isNewBestTime}
           totalStars={totalStars}
           onReplay={handleReplay}
           onNext={onNext}

@@ -50,7 +50,52 @@ const LEVELS = {
 };
 
 function getLevelData(packId, levelIndex) {
-  return LEVELS[`${packId}-${levelIndex}`] || LEVELS._default;
+  const base = LEVELS[`${packId}-${levelIndex}`] || LEVELS._default;
+  const ov   = window.FP_LEVEL_OVERRIDES?.[`${packId}-${levelIndex}`];
+  if (!ov) return base;
+  return {
+    ball:      (ov.ball_x != null && ov.ball_y != null) ? { x: ov.ball_x, y: ov.ball_y } : base.ball,
+    stars:     Array.isArray(ov.stars) ? ov.stars : base.stars,
+    scoreGoal: ov.score_goal != null ? ov.score_goal : base.scoreGoal,
+    eqGoal:    ov.eq_goal    != null ? ov.eq_goal    : base.eqGoal,
+  };
+}
+
+function getLevelName(packId, levelIndex) {
+  const ov = window.FP_LEVEL_OVERRIDES?.[`${packId}-${levelIndex}`];
+  return (ov && ov.name) || LEVEL_NAMES[levelIndex] || `Level ${levelIndex+1}`;
+}
+
+function getPack(packId) {
+  const base = [...ROMAN_PACKS, ...SPECIAL_PACKS].find(p => p.id === packId);
+  if (!base) return null;
+  const ov = window.FP_PACK_OVERRIDES?.[packId];
+  if (!ov) return base;
+  return {
+    ...base,
+    name:         ov.name          || base.name,
+    allowedClass: ov.allowed_class || base.allowedClass,
+  };
+}
+
+// Apply overrides fetched from Supabase. Mutates packs in place so existing
+// references (e.g. ROMAN_PACKS[0].name) immediately reflect new values.
+function applyOverrides({ packs = [], levels = [] }) {
+  const lvlMap = {};
+  levels.forEach(l => { lvlMap[`${l.pack_id}-${l.level_index}`] = l; });
+  window.FP_LEVEL_OVERRIDES = lvlMap;
+
+  const packMap = {};
+  packs.forEach(p => { packMap[p.pack_id] = p; });
+  window.FP_PACK_OVERRIDES = packMap;
+
+  // Patch in-place so static references update too
+  [...ROMAN_PACKS, ...SPECIAL_PACKS].forEach(p => {
+    const ov = packMap[p.id];
+    if (!ov) return;
+    if (ov.name)          p.name = ov.name;
+    if (ov.allowed_class) p.allowedClass = ov.allowed_class;
+  });
 }
 
 // ─── Progress helpers ────────────────────────────────────────
@@ -156,7 +201,7 @@ const LEVEL_GRAPH = ['I','II','III','IV','V','VI','VII','VIII','IX','X','lin','q
 Object.assign(window, {
   ROMAN_PACKS, SPECIAL_PACKS, LEVELS,
   SPECIAL_UNLOCK_STARS,
-  getLevelData,
+  getLevelData, getLevelName, getPack, applyOverrides,
   freshProgress, buildProgress,
   packTotalStars, packIsLocked, packIsComplete, totalStarsAll,
   computePackLocked,

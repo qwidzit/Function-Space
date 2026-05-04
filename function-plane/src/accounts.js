@@ -105,6 +105,13 @@
           if (bb === null) return ba;
           return Math.min(ba, bb); // lower score = better (fewer equations used)
         }),
+        bestTime: Array.from({ length: 10 }, (_, i) => {
+          const ta = pa.bestTime?.[i] ?? null, tb = pb.bestTime?.[i] ?? null;
+          if (ta === null && tb === null) return null;
+          if (ta === null) return tb;
+          if (tb === null) return ta;
+          return Math.min(ta, tb);
+        }),
       };
     }
     return out;
@@ -120,12 +127,22 @@
     if ((password||'').length < 6) throw new Error('Password must be at least 6 characters');
     if (!_sb)                     throw new Error('Supabase is not configured yet');
 
+    // Pre-check name uniqueness so we fail fast with a clear message
+    const avail = await checkNameAvailable(name);
+    if (!avail.available) throw new Error(avail.reason || 'That name is taken');
+
     const avatar = AVATARS[Math.floor(Math.random() * AVATARS.length)];
     const { data, error } = await _sb.auth.signUp({
       email, password,
       options: { data: { name, avatar } },
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('duplicate') || msg.includes('unique') || msg.includes('23505')) {
+        throw new Error('That name is taken');
+      }
+      throw new Error(error.message);
+    }
 
     // Migrate any guest progress to the new account
     const guestProgress = readJSON(GUEST_KEY, null);
@@ -193,14 +210,20 @@
         (pd?.best || []).forEach((score, levelIndex) => {
           const stars = pd?.stars?.[levelIndex] ?? -1;
           if (score != null && stars >= 1) {
-            rows.push({ user_id: userId, pack_id: packId, level_index: levelIndex, best_score: score, stars });
+            const t = pd?.bestTime?.[levelIndex];
+            rows.push({
+              user_id: userId, pack_id: packId, level_index: levelIndex,
+              best_score: score, stars,
+              best_time: t == null ? null : t,
+            });
           }
         });
       }
       if (rows.length) {
-        await _sb.from('level_scores').upsert(rows, {
+        const { error: upErr } = await _sb.from('level_scores').upsert(rows, {
           onConflict: 'user_id,pack_id,level_index', ignoreDuplicates: false,
         });
+        if (upErr) console.warn('FP_AUTH: level_scores upsert error', upErr);
       }
 
       if (_currentUser) _currentUser.totalStars = totalStars;
@@ -230,15 +253,13 @@
         .select('id, name, avatar, total_stars')
         .order('total_stars', { ascending: false })
         .limit(25);
-      if (error || !data) return [];
+      if (error) { console.warn('FP_AUTH: stars leaderboard error', error); return []; }
 
-      const rows = data.map((r, i) => ({
+      const rows = (data || []).map((r, i) => ({
         id: r.id, name: r.name, avatar: r.avatar,
         stars: r.total_stars, rank: i + 1,
         self: r.id === _currentUser?.id,
       }));
-
-      // Append current user below top-25 if not already in list
       if (_currentUser && !rows.find(r => r.self)) {
         rows.push({
           id: _currentUser.id, name: _currentUser.name, avatar: _currentUser.avatar,
@@ -248,38 +269,107 @@
       return rows;
     }
 
-    if (metric === 'level' && packId != null && levelIndex != null) {
-      const { data, error } = await _sb
-        .from('level_scores')
-        .select('user_id, best_score, profiles ( name, avatar )')
+    if ((metric === 'level' || metric === 'time') && packId != null && levelIndex != null) {
+      const isTime  = metric === 'time';
+      const orderBy = isTime ? 'best_time' : 'best_score';
+      const sel     = `user_id, ${orderBy}`;
+
+      let q = _sb.from('level_scores')
+        .select(sel)
         .eq('pack_id', packId)
         .eq('level_index', levelIndex)
-        .order('best_score', { ascending: true })  // lower score = more elegant solution
+        .order(orderBy, { ascending: true })
         .limit(25);
-      if (error || !data) return [];
+      if (isTime) q = q.not('best_time', 'is', null);
 
-      const rows = data.map((r, i) => ({
-        id: r.user_id,
-        name:   r.profiles?.name   || 'Player',
-        avatar: r.profiles?.avatar || '🟢',
-        score: r.best_score, rank: i + 1,
-        self: r.user_id === _currentUser?.id,
-      }));
+      const { data: scores, error: sErr } = await q;
+      if (sErr) { console.warn('FP_AUTH: level leaderboard error', sErr); return []; }
+      if (!scores || scores.length === 0) return _selfOnlyLevelRow(packId, levelIndex, isTime);
 
-      // Append self below top-25 if not present (using local cached score)
+      // Two-query join: fetch profiles separately so we don't depend on FK embed
+      const ids = [...new Set(scores.map(s => s.user_id))];
+      const { data: profs } = await _sb
+        .from('profiles').select('id, name, avatar').in('id', ids);
+      const pmap = new Map((profs || []).map(p => [p.id, p]));
+
+      const rows = scores.map((s, i) => {
+        const p = pmap.get(s.user_id) || {};
+        return {
+          id: s.user_id,
+          name:   p.name   || 'Player',
+          avatar: p.avatar || '🟢',
+          score: isTime ? null : s.best_score,
+          time:  isTime ? s.best_time  : null,
+          rank: i + 1,
+          self: s.user_id === _currentUser?.id,
+        };
+      });
+
       if (_currentUser && !rows.find(r => r.self)) {
-        const myScore = getActiveProgress()?.[packId]?.best?.[levelIndex];
-        if (myScore != null) {
-          rows.push({
-            id: _currentUser.id, name: _currentUser.name, avatar: _currentUser.avatar,
-            score: myScore, rank: null, self: true,
-          });
-        }
+        rows.push(..._selfOnlyLevelRow(packId, levelIndex, isTime));
       }
       return rows;
     }
 
     return [];
+  }
+
+  function _selfOnlyLevelRow(packId, levelIndex, isTime) {
+    if (!_currentUser) return [];
+    const pd = getActiveProgress()?.[packId];
+    const v  = isTime ? pd?.bestTime?.[levelIndex] : pd?.best?.[levelIndex];
+    if (v == null) return [];
+    return [{
+      id: _currentUser.id, name: _currentUser.name, avatar: _currentUser.avatar,
+      score: isTime ? null : v, time: isTime ? v : null,
+      rank: null, self: true,
+    }];
+  }
+
+  // ── Name availability ─────────────────────────────────────────────────────
+  // Names are case-insensitive unique. Returns { available: bool, reason?: string }
+  async function checkNameAvailable(name) {
+    name = (name || '').trim();
+    if (!name) return { available: false, reason: 'Display name is required' };
+    if (name.length < 2)  return { available: false, reason: 'At least 2 characters' };
+    if (name.length > 30) return { available: false, reason: 'Up to 30 characters' };
+    if (!_sb) return { available: true };
+    const { data, error } = await _sb
+      .from('profiles').select('id').ilike('name', name).limit(1);
+    if (error) { console.warn('FP_AUTH: name check error', error); return { available: true }; }
+    return data && data.length > 0
+      ? { available: false, reason: 'That name is taken' }
+      : { available: true };
+  }
+
+  // ── Admin overrides (pack_overrides + level_overrides tables) ─────────────
+  async function fetchOverrides() {
+    if (!_sb) return { packs: [], levels: [] };
+    const [{ data: packs, error: pErr }, { data: levels, error: lErr }] = await Promise.all([
+      _sb.from('pack_overrides').select('*'),
+      _sb.from('level_overrides').select('*'),
+    ]);
+    if (pErr) console.warn('FP_AUTH: pack_overrides fetch error', pErr);
+    if (lErr) console.warn('FP_AUTH: level_overrides fetch error', lErr);
+    return { packs: packs || [], levels: levels || [] };
+  }
+
+  async function savePackOverride(packId, patch) {
+    if (!_sb) throw new Error('Supabase not configured');
+    const row = { pack_id: packId, ...patch, updated_at: new Date().toISOString() };
+    const { error } = await _sb.from('pack_overrides').upsert(row, { onConflict: 'pack_id' });
+    if (error) throw new Error(error.message);
+  }
+
+  async function saveLevelOverride(packId, levelIndex, patch) {
+    if (!_sb) throw new Error('Supabase not configured');
+    const row = { pack_id: packId, level_index: levelIndex, ...patch, updated_at: new Date().toISOString() };
+    const { error } = await _sb.from('level_overrides').upsert(row, { onConflict: 'pack_id,level_index' });
+    if (error) throw new Error(error.message);
+  }
+
+  function isAdmin() {
+    return _currentUser?.name === 'Test Account';
   }
 
   // ── Misc ──────────────────────────────────────────────────────────────────
@@ -294,10 +384,12 @@
   // ── Export ────────────────────────────────────────────────────────────────
 
   window.FP_AUTH = {
-    getActive, signOut,
+    getActive, signOut, isAdmin,
     register, signIn, resetPassword,
+    checkNameAvailable,
     getActiveProgress, updateActiveProgress,
     buildLeaderboard, totalStarsFromProgress,
+    fetchOverrides, savePackOverride, saveLevelOverride,
     subscribe,
     AVATARS,
   };
