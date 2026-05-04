@@ -159,9 +159,21 @@ function PackRow({ pack, stars, locked, complete, onClick, lockInfo }) {
           fontStyle: 'italic', fontWeight: 400,
           fontSize: pack.numeral.length > 2 ? 22 : 26,
           color: 'var(--fp-ink)', position: 'relative', letterSpacing: '-0.02em',
+          opacity: locked ? 0.4 : 1,
         }}>
           {pack.numeral}
         </span>
+        {locked && (
+          <div style={{
+            position: 'absolute', right: 4, bottom: 4,
+            width: 22, height: 22, borderRadius: 6,
+            background: 'var(--fp-ink)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+          }}>
+            <Icon.Lock size={11} c="var(--fp-bg)"/>
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0 }}>
@@ -236,9 +248,21 @@ function SpecialPackCard({ pack, stars, locked, complete, onClick, lockInfo, tot
         margin: '8px 0',
         background: 'var(--fp-surface-2)', borderRadius: 10,
         height: 52, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        position: 'relative',
       }}>
         <MiniGraph kind={pack.kind} w={88} h={40}
           c={locked ? 'var(--fp-ink-4)' : 'var(--fp-ink)'} dim="var(--fp-line)"/>
+        {locked && (
+          <div style={{
+            position: 'absolute', right: 6, bottom: 6,
+            width: 22, height: 22, borderRadius: 6,
+            background: 'var(--fp-ink)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+          }}>
+            <Icon.Lock size={11} c="var(--fp-bg)"/>
+          </div>
+        )}
       </div>
 
       <div>
