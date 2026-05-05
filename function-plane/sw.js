@@ -1,4 +1,4 @@
-const CACHE = 'fp-v15';
+const CACHE = 'fp-v16';
 const SHELL = [
   './',
   './index.html',
