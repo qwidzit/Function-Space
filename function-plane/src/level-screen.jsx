@@ -223,52 +223,69 @@ function physicsStep(ph, explFns, implFns, dt) {
 
   const EPS = 1e-3;
 
-  // ── Explicit y = f(x): bidirectional collision with intermediate sampling
+  // ── Explicit y = f(x): bidirectional collision with sign-flip detection
   //
-  // For oscillating curves (sin / cos / etc.) the ball can pass over a peak
-  // between two physics sub-steps and never trigger collision at either
-  // endpoint. We sample the curve at SAMPLES intermediate x positions along
-  // the trajectory and pick the highest cy the ball passed under (or, for
-  // bottom hits, the lowest cy it passed over) — this catches peaks the
-  // straight-line path went through.
-  const SAMPLES = 6;
+  // For oscillating or very steep curves (sin/cos/tan, near-vertical lines,
+  // exponentials) the previous "wasAbove ∧ nowInside" check could miss the
+  // crossing because cy at the new x was very different from cy at the old x.
+  // We now sample the curve at SAMPLES points along the trajectory and watch
+  // the SIGN of (ball_bottom_t − cy_t). When it flips from + to − between
+  // two consecutive samples, the ball crossed the curve from above and we
+  // collide. Mirror logic with (ball_top_t − cy_t) for upward bumps.
+  const SAMPLES = 12;
   let hitFn = null, hitX = ph.x, hitY = -Infinity, hitFromBelow = false;
 
-  // Top-side pass: ball going down onto curve
+  // Top-side pass: ball coming down onto the curve
   for (const { fn, domain } of explFns) {
+    let prevSign = null;        // sign of (ball_bottom - cy) at last in-domain sample
+    let prevCy   = null;
+    let prevXs   = xPrev;
     for (let i = 0; i <= SAMPLES; i++) {
       const t  = i / SAMPLES;
       const xs = xPrev + (ph.x - xPrev) * t;
       const ys = yPrev + (ph.y - yPrev) * t;
-      if (!inDomain(xs, domain)) continue;
+      if (!inDomain(xs, domain)) { prevSign = null; continue; }
       const cy = fn(xs);
-      if (!isFinite(cy) || isNaN(cy)) continue;
-      // Ball was above this x at the start of the step (or earlier in path)?
-      const yStart = yPrev;
-      const wasAbove  = (yStart - BALL_R) >= (cy - EPS);
-      const nowInside = (ys - BALL_R) <= cy;
-      if (wasAbove && nowInside && cy > hitY) {
-        hitY = cy; hitFn = fn; hitX = xs; hitFromBelow = false;
+      if (!isFinite(cy) || isNaN(cy)) { prevSign = null; continue; }
+      const diff = (ys - BALL_R) - cy;
+      const sign = diff > EPS ? 1 : diff < -EPS ? -1 : 0;
+      // Sign flipped from "above" (+) to "at or below" (≤0) → crossing
+      if (prevSign === 1 && sign <= 0) {
+        // Pick the higher of the two endpoint cy values for the rest position
+        const cAtCross = Math.max(cy, prevCy ?? cy);
+        if (cAtCross > hitY) {
+          hitY = cAtCross; hitFn = fn;
+          hitX = sign === 0 ? xs : (xs + prevXs) / 2;
+          hitFromBelow = false;
+        }
       }
+      prevSign = sign; prevCy = cy; prevXs = xs;
     }
   }
-  // Bottom-side pass: ball going up into underside of curve
+
+  // Bottom-side pass: ball going up into the underside of the curve
   if (hitFn === null) {
     let bestY = Infinity, bestFn = null, bestX = ph.x;
     for (const { fn, domain } of explFns) {
+      let prevSign = null, prevCy = null, prevXs = xPrev;
       for (let i = 0; i <= SAMPLES; i++) {
         const t  = i / SAMPLES;
         const xs = xPrev + (ph.x - xPrev) * t;
         const ys = yPrev + (ph.y - yPrev) * t;
-        if (!inDomain(xs, domain)) continue;
+        if (!inDomain(xs, domain)) { prevSign = null; continue; }
         const cy = fn(xs);
-        if (!isFinite(cy) || isNaN(cy)) continue;
-        const yStart = yPrev;
-        const wasBelow  = (yStart + BALL_R) <= (cy + EPS);
-        const nowInside = (ys + BALL_R) >= cy;
-        if (wasBelow && nowInside && cy < bestY) {
-          bestY = cy; bestFn = fn; bestX = xs;
+        if (!isFinite(cy) || isNaN(cy)) { prevSign = null; continue; }
+        const diff = (ys + BALL_R) - cy;
+        const sign = diff < -EPS ? -1 : diff > EPS ? 1 : 0;
+        // Sign flipped from "below" (-) to "at or above" (≥0) → upward crossing
+        if (prevSign === -1 && sign >= 0) {
+          const cAtCross = Math.min(cy, prevCy ?? cy);
+          if (cAtCross < bestY) {
+            bestY = cAtCross; bestFn = fn;
+            bestX = sign === 0 ? xs : (xs + prevXs) / 2;
+          }
         }
+        prevSign = sign; prevCy = cy; prevXs = xs;
       }
     }
     if (bestFn) { hitFn = bestFn; hitY = bestY; hitX = bestX; hitFromBelow = true; }
@@ -280,11 +297,11 @@ function physicsStep(ph, explFns, implFns, dt) {
     const fp = hitFn(hitX + h), fm = hitFn(hitX - h);
     const slope = (isFinite(fp) && isFinite(fm)) ? (fp - fm) / (2*h) : 0;
     const mag   = Math.sqrt(1 + slope*slope);
-    // Place the ball so its CENTER is BALL_R away from the curve along the
-    // surface normal, not just BALL_R vertically — otherwise the visible
-    // ball overlaps the curve on slopes (the "hitbox looks like a dot" bug).
+    // Cap the perpendicular-distance multiplier so near-vertical curves
+    // don't fling the ball miles off the surface. mag = 3 ≈ 70° slope.
+    const restMag = Math.min(mag, 3);
     ph.x = hitX;
-    ph.y = hitFromBelow ? (hitY - BALL_R * mag) : (hitY + BALL_R * mag);
+    ph.y = hitFromBelow ? (hitY - BALL_R * restMag) : (hitY + BALL_R * restMag);
 
     let nx = -slope/mag, ny = 1/mag;
     if (hitFromBelow) { nx = -nx; ny = -ny; }

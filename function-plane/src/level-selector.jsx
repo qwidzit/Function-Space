@@ -165,7 +165,7 @@ function LevelRow({ index, pack, stars, best, unlocked, attempted, cleared, onCl
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--fp-ink)' }}>
-            {LEVEL_NAMES[index]}
+            {(window.getLevelName ? getLevelName(pack.id, index) : LEVEL_NAMES[index])}
           </span>
           {status === 'cleared' && stars === 3 && (
             <span style={{
