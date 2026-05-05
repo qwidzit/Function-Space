@@ -65,9 +65,63 @@
           0 8px 24px rgba(0,0,0,0.4);
       }
     }
+
+    /* ── Splash / loading screen ──────────────────────────────────────────
+       Painted before any JavaScript runs (HTML+CSS only) so the user sees
+       the wordmark instantly. JS hides it once both React and the Google
+       Fonts (Instrument Serif + Geist) have finished loading. */
+    #fp-splash {
+      position: fixed; inset: 0; z-index: 99999;
+      background: #0e0f10;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column;
+      transition: opacity .3s ease;
+      /* Use a system serif up front; the wordmark restyles itself once
+         Instrument Serif has loaded. Most platforms render Georgia in italic
+         close enough that the swap is barely perceptible. */
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+    #fp-splash.fp-fade { opacity: 0; pointer-events: none; }
+    #fp-splash .fp-wordmark {
+      font-style: italic; font-weight: 400;
+      font-size: 56px; line-height: 1; letter-spacing: -0.02em;
+      color: #f4f4f5;
+    }
+    #fp-splash .fp-wordmark .accent { color: #c0c0c4; }
+    #fp-splash .fp-tag {
+      margin-top: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: #6b6c70;
+    }
+    #fp-splash .fp-bar {
+      margin-top: 28px;
+      width: 80px; height: 2px; border-radius: 2px;
+      background: #1c1d20;
+      overflow: hidden;
+    }
+    #fp-splash .fp-bar::after {
+      content: ''; display: block;
+      width: 40%; height: 100%;
+      background: #6b6c70;
+      animation: fp-pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes fp-pulse {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(250%); }
+    }
+    /* When Instrument Serif loaded, the wordmark switches to it cleanly */
+    .fonts-ready #fp-splash .fp-wordmark {
+      font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+    }
   </style>
 </head>
 <body>
+  <div id="fp-splash" aria-hidden="true">
+    <div class="fp-wordmark"><span>Function</span> <span class="accent">Plane</span></div>
+    <div class="fp-tag">loading</div>
+    <div class="fp-bar"></div>
+  </div>
   <div id="root"></div>
 
   <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
@@ -105,6 +159,51 @@
         navigator.serviceWorker.register('sw.js').catch(() => {});
       });
     }
+
+    // ── Splash dismissal ────────────────────────────────────────────────
+    // Hide the splash only when:
+    //   1. The Google Fonts we depend on have actually loaded
+    //   2. The first React tree is in the DOM (#root has children)
+    // This avoids the 1-frame flash where serif text appears in Georgia
+    // before swapping to Instrument Serif.
+    (function () {
+      var splash = document.getElementById('fp-splash');
+      if (!splash) return;
+      var minDelay = 350;        // floor so the splash doesn't blink in/out
+      var startedAt = Date.now();
+
+      function fontsReady() {
+        if (!document.fonts || !document.fonts.load) return Promise.resolve();
+        return Promise.allSettled([
+          document.fonts.load('italic 1em "Instrument Serif"'),
+          document.fonts.load('500 1em "Geist"'),
+          document.fonts.load('400 1em "Geist Mono"'),
+        ]).then(function () {
+          document.documentElement.classList.add('fonts-ready');
+        });
+      }
+      function rootReady() {
+        return new Promise(function (resolve) {
+          var root = document.getElementById('root');
+          if (root && root.firstChild) return resolve();
+          var mo = new MutationObserver(function () {
+            if (root.firstChild) { mo.disconnect(); resolve(); }
+          });
+          mo.observe(root, { childList: true });
+        });
+      }
+      function hide() {
+        var elapsed = Date.now() - startedAt;
+        var wait = Math.max(0, minDelay - elapsed);
+        setTimeout(function () {
+          splash.classList.add('fp-fade');
+          setTimeout(function () { splash.remove(); }, 320);
+        }, wait);
+      }
+      Promise.all([fontsReady(), rootReady()]).then(hide).catch(hide);
+      // Hard fallback so a slow network never strands the user on the splash
+      setTimeout(hide, 7000);
+    })();
   </script>
 </body>
 </html>

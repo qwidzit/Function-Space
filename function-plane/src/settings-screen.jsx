@@ -78,18 +78,6 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
             onChange={v => updateSetting('notation', v)} />
         </SGroup>
 
-        <SSection>Notifications</SSection>
-        <SGroup>
-          <TogRow label="New pack releases" helpKey="notifNewPacks" onHelp={setHelpFor} value={settings.notifNewPacks}
-            onChange={async v => {
-              if (v) {
-                try { await window.FP_AUTH?.enablePushNotifications?.(); }
-                catch (e) { window.fpToast?.(e.message, { kind: 'error' }); v = false; }
-              }
-              updateSetting('notifNewPacks', v);
-            }} />
-        </SGroup>
-
         <SSection>About</SSection>
         <SGroup>
           <SNavRow label="Privacy policy"        onPress={() => onLegal && onLegal('privacy')} />
@@ -99,10 +87,17 @@ function SettingsScreen({ onBack, settings, updateSetting, density = 'comfortabl
         </SGroup>
 
         <div style={{
-          textAlign: 'center', fontSize: 10.5, color: 'var(--fp-ink-4)',
-          letterSpacing: '0.06em', textTransform: 'uppercase', paddingTop: 18,
+          textAlign: 'center', paddingTop: 18,
         }}>
-          v 1.0 · build 2
+          <div style={{
+            fontSize: 10.5, color: 'var(--fp-ink-4)',
+            letterSpacing: '0.06em', textTransform: 'uppercase',
+          }}>v 1.0 · build 2</div>
+          <div style={{
+            fontSize: 10.5, color: 'var(--fp-ink-4)',
+            letterSpacing: '0.06em', textTransform: 'uppercase',
+            marginTop: 4,
+          }}>Developed by Quant</div>
         </div>
       </div>
 
