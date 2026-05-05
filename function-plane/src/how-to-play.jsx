@@ -129,7 +129,7 @@ function HowToPlayScreen({ onBack, density = 'comfortable' }) {
           </div>
         </HTPCard>
 
-        <HTPCard color="#18181a"
+        <HTPCard color="#6042a6"
           icon={<svg width={20} height={20} viewBox="0 0 24 24" fill="none">
             <path d="M6 3v18M18 3v18M3 9h18M3 15h18" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round"/>
           </svg>}
