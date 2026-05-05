@@ -20,6 +20,7 @@
     "@capacitor/ios": "^6.1.2"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^6.1.2",
     "supabase": "^2.98.2"
   }
