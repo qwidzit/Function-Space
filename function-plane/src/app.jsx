@@ -142,8 +142,37 @@ function App() {
   const totalStars    = useMemo(() => totalStarsAll(progress), [progress]);
   const continuePoint = useMemo(() => findContinuePoint(progress), [progress]);
 
-  const navigate = (route, extra = {}) =>
-    setNav({ route, pack: null, levelIndex: 0, legalKind: null, ...extra });
+  // Navigation history so the Android hardware back button can step back
+  // through screens instead of closing the app.
+  const navStackRef = useRef([]);
+  const navigate = (route, extra = {}) => {
+    setNav(curr => {
+      // Don't push the same route twice in a row
+      if (curr.route !== route) navStackRef.current.push(curr);
+      return { route, pack: null, levelIndex: 0, legalKind: null, ...extra };
+    });
+  };
+  const navigateBack = () => {
+    setNav(curr => {
+      const prev = navStackRef.current.pop();
+      return prev || { route: 'main', pack: null, levelIndex: 0, legalKind: null };
+    });
+  };
+
+  // Capacitor: hook the Android hardware back button (no-op in browsers)
+  useEffect(() => {
+    const Cap = window.Capacitor;
+    if (!Cap?.Plugins?.App) return;
+    let removeFn;
+    Cap.Plugins.App.addListener('backButton', () => {
+      if (navStackRef.current.length > 0) {
+        navigateBack();
+      } else {
+        Cap.Plugins.App.exitApp();
+      }
+    }).then(h => { removeFn = h?.remove; });
+    return () => { try { removeFn?.(); } catch {} };
+  }, []);
 
   const renderScreen = () => {
     const { route } = nav;

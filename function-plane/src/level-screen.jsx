@@ -985,6 +985,23 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   };
 
   const [autoZoomTrigger, setAutoZoomTrigger] = useSL(0);
+  const [historyOpen, setHistoryOpen] = useSL(false);
+
+  const loadFromHistory = (exprs) => {
+    setHistoryOpen(false);
+    setEquations(eqs => {
+      const pre = eqs.filter(e => e.preplaced);
+      const rows = exprs.map((expr, i) => {
+        const parsed = parseEquation(expr);
+        return {
+          id: i + 1, expr, ...parsed,
+          color: EQ_COLORS[(pre.length + i) % EQ_COLORS.length],
+          visible: true, domain: null, preplaced: false,
+        };
+      });
+      return [...pre, ...rows];
+    });
+  };
 
   // Themed-pack equation-class enforcement
   const packAllowedClass = (window.getPack ? getPack(pack.id)?.allowedClass : pack.allowedClass) || null;
@@ -1080,6 +1097,23 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         const isNewT   = bestTime == null || finishT < bestTime;
 
         sfx('levelComplete'); hap(20);
+        // Save this successful run to local history so the player can reload
+        // their previous equations next time they revisit the level. Stores
+        // up to 10 most-recent runs per (packId, levelIndex), de-duplicated
+        // by the equation strings.
+        try {
+          const key = `fp-history-${pack.id}-${levelIndex}`;
+          const prev = JSON.parse(localStorage.getItem(key) || '[]');
+          const exprs = userEqs.filter(e => e.fn).map(e => e.expr);
+          const sig = exprs.join('||');
+          const entry = {
+            exprs, score: sc, time: finishT, stars: rating,
+            ts: Date.now(),
+          };
+          const filtered = prev.filter(p => (p.exprs || []).join('||') !== sig);
+          const next = [entry, ...filtered].slice(0, 10);
+          localStorage.setItem(key, JSON.stringify(next));
+        } catch {}
         setCompleted({
           score: sc, starsRating: rating,
           prevBest: best, isNewBest: isNew,
@@ -1156,22 +1190,38 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
               : <Icon.Play size={11} c="currentColor"/>}
           </button>
         </div>
-        <div style={{ display:'flex', gap:6 }}>
+        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
           <GoalChip stars={2} label={`score ≤ ${scoreGoal}`}/>
           <GoalChip stars={3} label={`≤ ${eqGoal} eq`}/>
           {missMsg && (
             <div style={{ marginLeft:'auto', fontSize:11, color:'#c74440',
               display:'flex', alignItems:'center', fontWeight:500 }}>
-              Collect all stars!
+              {classWarning ? 'Wrong equation type for this pack' : 'Collect all stars!'}
             </div>
           )}
+          <button onClick={() => setHistoryOpen(true)} disabled={running} style={{
+            marginLeft: missMsg ? 6 : 'auto',
+            height: 24, padding: '0 10px', borderRadius: 999,
+            background: 'transparent', border: '1px solid var(--lv-line)',
+            color: 'var(--fp-ink-2)', fontSize: 11, fontWeight: 500,
+            display: 'flex', alignItems: 'center', gap: 5,
+            opacity: running ? 0.4 : 1,
+          }}>
+            <svg width={11} height={11} viewBox="0 0 24 24" fill="none">
+              <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            History
+          </button>
         </div>
       </div>
 
       {/* Plane */}
       <div style={{
         flex:1, position:'relative', minHeight:0,
-        borderTop:'1px solid var(--lv-line)', borderBottom:'1px solid var(--lv-line)',
+        // Borders kept at 1px (avoids sub-pixel rounding seams between
+        // the HUD/equations panel and the plane) but recolored to match
+        // the surrounding theme bg so they're invisible.
+        borderTop:'1px solid var(--lv-bg)', borderBottom:'1px solid var(--lv-bg)',
       }}>
         <PlaneFiller
           equations={equations} ballPos={ballPos}
@@ -1205,6 +1255,87 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
           onNext={onNext}
           onClose={()=>setCompleted(null)}/>
       )}
+
+      {historyOpen && (
+        <HistoryPopup
+          packId={pack.id} levelIndex={levelIndex}
+          onClose={() => setHistoryOpen(false)}
+          onLoad={loadFromHistory}/>
+      )}
+    </div>
+  );
+}
+
+// ─── History popup ────────────────────────────────────────────────────────
+function HistoryPopup({ packId, levelIndex, onClose, onLoad }) {
+  const key = `fp-history-${packId}-${levelIndex}`;
+  let entries = [];
+  try { entries = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
+
+  const fmtAgo = ts => {
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position:'absolute', inset:0, zIndex:80,
+      background:'rgba(0,0,0,0.5)',
+      display:'flex', alignItems:'flex-end',
+      backdropFilter:'blur(2px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width:'100%', background:'var(--fp-bg)',
+        borderRadius:'22px 22px 0 0',
+        padding:'18px 0 max(18px, env(safe-area-inset-bottom, 0px))',
+        boxShadow:'0 -8px 40px rgba(0,0,0,0.3)',
+        maxHeight:'72vh', display:'flex', flexDirection:'column',
+      }}>
+        <div style={{ width:36, height:4, borderRadius:2, background:'var(--fp-ink-4)', margin:'0 auto 14px' }}/>
+        <div style={{
+          padding:'0 22px 12px',
+          fontFamily:"'Instrument Serif', Georgia, serif", fontStyle:'italic',
+          fontSize:24, color:'var(--fp-ink)', letterSpacing:'-0.02em',
+        }}>Previous successful runs</div>
+
+        <div className="fp-scroll" style={{ flex:1, overflowY:'auto', padding:'0 22px' }}>
+          {entries.length === 0 && (
+            <div style={{ padding:'18px 0', fontSize:13, color:'var(--fp-ink-3)', textAlign:'center', lineHeight:1.55 }}>
+              No completed runs yet.<br/>Solve the level once and your equations will be saved here.
+            </div>
+          )}
+          {entries.map((e, i) => (
+            <div key={i} style={{
+              border:'1px solid var(--fp-line)', borderRadius:14,
+              padding:'12px 14px', marginBottom:8, background:'var(--fp-surface)',
+            }}>
+              <div style={{ display:'flex', alignItems:'baseline', gap:10, marginBottom:8 }}>
+                <Stars count={e.stars} total={3} size={11}/>
+                <span className="fp-mono" style={{ fontSize:12, color:'var(--fp-ink-2)' }}>{e.score} pts</span>
+                <span className="fp-mono" style={{ fontSize:12, color:'var(--fp-ink-3)' }}>{e.time?.toFixed?.(2) ?? '—'}s</span>
+                <span style={{ marginLeft:'auto', fontSize:11, color:'var(--fp-ink-4)' }}>{fmtAgo(e.ts)}</span>
+              </div>
+              <div style={{ marginBottom:10, display:'flex', flexDirection:'column', gap:4 }}>
+                {(e.exprs || []).map((expr, j) => (
+                  <div key={j} className="fp-mono" style={{
+                    fontSize:12, color:'var(--fp-ink)',
+                    background:'var(--fp-surface-2)', borderRadius:8,
+                    padding:'5px 9px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+                  }}>{expr}</div>
+                ))}
+              </div>
+              <button onClick={() => onLoad(e.exprs)} style={{
+                width:'100%', height:36, borderRadius:10,
+                background:'var(--fp-ink)', color:'var(--fp-bg)',
+                fontSize:12.5, fontWeight:500,
+              }}>Load these equations</button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
