@@ -48,22 +48,4 @@
     },
   };
 
-  // Haptics. `navigator.vibrate` is a no-op inside Capacitor's Android
-  // WebView and unsupported on iOS WebKit, so on native we route through
-  // @capacitor/haptics. The plugin's `impact` style is picked from the
-  // requested duration (short = light tap, long = heavy thud) so the
-  // existing call sites stay unchanged.
-  window.FP_HAPTIC = function (ms) {
-    const dur = ms || 10;
-    const Hap = window.Capacitor?.Plugins?.Haptics;
-    if (Hap) {
-      try {
-        const style = dur >= 25 ? 'Heavy' : dur >= 12 ? 'Medium' : 'Light';
-        const ret = Hap.impact({ style });
-        if (ret && typeof ret.catch === 'function') ret.catch(() => {});
-        return;
-      } catch (_) { /* fall through to web fallback */ }
-    }
-    try { if (navigator.vibrate) navigator.vibrate(dur); } catch (_) {}
-  };
 })();

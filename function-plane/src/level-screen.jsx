@@ -1009,11 +1009,9 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
   const eqGoal     = levelData.eqGoal    ?? 1;
 
   const soundEnabled   = settings?.sound   !== false;
-  const hapticsEnabled = settings?.haptics !== false;
   const volume         = (settings?.volume ?? 70) / 100;
 
   const sfx = (name) => { if (soundEnabled && window.FP_AUDIO) window.FP_AUDIO[name]?.(volume); };
-  const hap = (ms)   => { if (hapticsEnabled && window.FP_HAPTIC) window.FP_HAPTIC(ms); };
 
   // Pre-placed equations come from the level data (admin-authored). They are
   // shown first, can't be removed, and are excluded from score / eqsUsed.
@@ -1116,7 +1114,6 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
     setCompleted(null);
     setRunning(true);
     if (settings?.autoZoom) setAutoZoomTrigger(t => t + 1);
-    hap(15);
   };
 
   const handleReplay = () => {
@@ -1147,7 +1144,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
       for (let s=0; s<SUB_STEPS; s++) physicsStep(ph, explFns, implFns, dt);
 
       if (ph.bounced) { sfx('bounce'); }
-      if (ph.justCollected) { sfx('collectStar'); hap(12); }
+      if (ph.justCollected) { sfx('collectStar'); }
 
       setBallPos({ x:ph.x, y:ph.y });
       const collected = ph.stars.filter(s=>s.collected).length;
@@ -1171,7 +1168,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         if (failed) {
           resetSim();
           setMissMsg(true);
-          sfx('levelFail'); hap(30);
+          sfx('levelFail');
           setTimeout(()=>setMissMsg(false), 1800);
           return;
         }
@@ -1184,7 +1181,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         const isNew    = best == null || sc < best;
         const isNewT   = bestTime == null || finishT < bestTime;
 
-        sfx('levelComplete'); hap(20);
+        sfx('levelComplete');
         // Save this successful run to local history so the player can reload
         // their previous equations next time they revisit the level. Stores
         // up to 10 most-recent runs per (packId, levelIndex), de-duplicated

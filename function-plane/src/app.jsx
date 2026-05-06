@@ -6,7 +6,6 @@ const SETTINGS_DEFAULTS = {
   theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   density: 'comfortable',
   sound: true,
-  haptics: true,
   volume: 70,
   gridLabels: true,
   autoZoom: true,

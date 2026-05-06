@@ -333,10 +333,10 @@ function LockedPackPopup({ pack, lockInfo, totalStars, onClose }) {
 
         {isPrevPack && (
           <div style={{ textAlign: 'center', fontSize: 13.5, color: 'var(--fp-ink-3)', lineHeight: 1.55, marginBottom: 20 }}>
-            Earn <strong style={{ color: 'var(--fp-ink)' }}>29/30★</strong> in <strong style={{ color: 'var(--fp-ink)' }}>{prevPackName}</strong> to unlock this chapter.
+            Earn <strong style={{ color: 'var(--fp-ink)' }}>{need}/30★</strong> in <strong style={{ color: 'var(--fp-ink)' }}>{prevPackName}</strong> to unlock this chapter.
             <br/>
             <span style={{ fontSize: 12, color: 'var(--fp-ink-4)', display: 'block', marginTop: 4 }}>
-              You have {have}/29 so far.
+              You have {have}/{need} so far.
             </span>
           </div>
         )}
