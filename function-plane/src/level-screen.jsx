@@ -365,14 +365,21 @@ function physicsStep(ph, explFns, implFns, dt) {
     ph.y += nUy * move;
 
     // Reflect velocity component pointing *into* the curve from ball's side.
+    // Energy retention is only applied on **real** bounces (significant
+    // inward velocity); a ball gliding tangent down a slope barely poke into
+    // the curve each substep, and applying the retention multiplier 1200×
+    // per second of contact would bleed off all its momentum even though
+    // physically there's no normal impact, just rolling.
     const nx = sign * nUx, ny = sign * nUy;
     const vn = ph.vx * nx + ph.vy * ny;
     if (vn < 0) {
       ph.vx -= (1 + PHYSICS_CONFIG.bounciness) * vn * nx;
       ph.vy -= (1 + PHYSICS_CONFIG.bounciness) * vn * ny;
-      ph.vx *= PHYSICS_CONFIG.energyRetention;
-      ph.vy *= PHYSICS_CONFIG.energyRetention;
-      if (-vn > 1.5) ph.bounced = true;
+      if (-vn > 1.5) {
+        ph.vx *= PHYSICS_CONFIG.energyRetention;
+        ph.vy *= PHYSICS_CONFIG.energyRetention;
+        ph.bounced = true;
+      }
     }
   }
 
@@ -405,9 +412,11 @@ function physicsStep(ph, explFns, implFns, dt) {
     if (vn * sign < 0) {
       ph.vx -= (1+PHYSICS_CONFIG.bounciness)*vn*nx;
       ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
-      ph.vx *= PHYSICS_CONFIG.energyRetention;
-      ph.vy *= PHYSICS_CONFIG.energyRetention;
-      if (Math.abs(vn) > 1.5) ph.bounced = true;
+      if (Math.abs(vn) > 1.5) {
+        ph.vx *= PHYSICS_CONFIG.energyRetention;
+        ph.vy *= PHYSICS_CONFIG.energyRetention;
+        ph.bounced = true;
+      }
     }
   }
 

@@ -570,7 +570,7 @@ function LockedPackPopup({
     style: {
       color: 'var(--fp-ink)'
     }
-  }, "29/30\u2605"), " in ", /*#__PURE__*/React.createElement("strong", {
+  }, need, "/30\u2605"), " in ", /*#__PURE__*/React.createElement("strong", {
     style: {
       color: 'var(--fp-ink)'
     }
@@ -581,7 +581,7 @@ function LockedPackPopup({
       display: 'block',
       marginTop: 4
     }
-  }, "You have ", have, "/29 so far.")), isStars && /*#__PURE__*/React.createElement("div", {
+  }, "You have ", have, "/", need, " so far.")), isStars && /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: 'center',
       fontSize: 13.5,

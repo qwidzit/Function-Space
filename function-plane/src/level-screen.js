@@ -383,15 +383,22 @@ function physicsStep(ph, explFns, implFns, dt) {
     ph.y += nUy * move;
 
     // Reflect velocity component pointing *into* the curve from ball's side.
+    // Energy retention is only applied on **real** bounces (significant
+    // inward velocity); a ball gliding tangent down a slope barely poke into
+    // the curve each substep, and applying the retention multiplier 1200×
+    // per second of contact would bleed off all its momentum even though
+    // physically there's no normal impact, just rolling.
     const nx = sign * nUx,
       ny = sign * nUy;
     const vn = ph.vx * nx + ph.vy * ny;
     if (vn < 0) {
       ph.vx -= (1 + PHYSICS_CONFIG.bounciness) * vn * nx;
       ph.vy -= (1 + PHYSICS_CONFIG.bounciness) * vn * ny;
-      ph.vx *= PHYSICS_CONFIG.energyRetention;
-      ph.vy *= PHYSICS_CONFIG.energyRetention;
-      if (-vn > 1.5) ph.bounced = true;
+      if (-vn > 1.5) {
+        ph.vx *= PHYSICS_CONFIG.energyRetention;
+        ph.vy *= PHYSICS_CONFIG.energyRetention;
+        ph.bounced = true;
+      }
     }
   }
 
@@ -425,9 +432,11 @@ function physicsStep(ph, explFns, implFns, dt) {
     if (vn * sign < 0) {
       ph.vx -= (1 + PHYSICS_CONFIG.bounciness) * vn * nx;
       ph.vy -= (1 + PHYSICS_CONFIG.bounciness) * vn * ny;
-      ph.vx *= PHYSICS_CONFIG.energyRetention;
-      ph.vy *= PHYSICS_CONFIG.energyRetention;
-      if (Math.abs(vn) > 1.5) ph.bounced = true;
+      if (Math.abs(vn) > 1.5) {
+        ph.vx *= PHYSICS_CONFIG.energyRetention;
+        ph.vy *= PHYSICS_CONFIG.energyRetention;
+        ph.bounced = true;
+      }
     }
   }
 
@@ -1522,13 +1531,9 @@ function LevelScreen({
   const scoreGoal = levelData.scoreGoal ?? 320;
   const eqGoal = levelData.eqGoal ?? 1;
   const soundEnabled = settings?.sound !== false;
-  const hapticsEnabled = settings?.haptics !== false;
   const volume = (settings?.volume ?? 70) / 100;
   const sfx = name => {
     if (soundEnabled && window.FP_AUDIO) window.FP_AUDIO[name]?.(volume);
-  };
-  const hap = ms => {
-    if (hapticsEnabled && window.FP_HAPTIC) window.FP_HAPTIC(ms);
   };
 
   // Pre-placed equations come from the level data (admin-authored). They are
@@ -1663,7 +1668,6 @@ function LevelScreen({
     setCompleted(null);
     setRunning(true);
     if (settings?.autoZoom) setAutoZoomTrigger(t => t + 1);
-    hap(15);
   };
   const handleReplay = () => {
     setCompleted(null);
@@ -1693,7 +1697,6 @@ function LevelScreen({
       }
       if (ph.justCollected) {
         sfx('collectStar');
-        hap(12);
       }
       setBallPos({
         x: ph.x,
@@ -1720,7 +1723,6 @@ function LevelScreen({
           resetSim();
           setMissMsg(true);
           sfx('levelFail');
-          hap(30);
           setTimeout(() => setMissMsg(false), 1800);
           return;
         }
@@ -1732,7 +1734,6 @@ function LevelScreen({
         const isNew = best == null || sc < best;
         const isNewT = bestTime == null || finishT < bestTime;
         sfx('levelComplete');
-        hap(20);
         // Save this successful run to local history so the player can reload
         // their previous equations next time they revisit the level. Stores
         // up to 10 most-recent runs per (packId, levelIndex), de-duplicated

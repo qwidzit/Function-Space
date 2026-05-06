@@ -7,7 +7,6 @@ const {
 // Short explanations shown in the ⓘ popup next to gameplay & sound settings.
 const SETTING_HELP = {
   sound: 'Plays short tones when the ball bounces, you collect a star, and on level success or failure.',
-  haptics: 'Brief device vibration on key events (mobile only). No effect on desktop browsers.',
   volume: 'Master volume for sound effects.',
   gridLabels: 'Show numeric labels along the X and Y axes of the level plane.',
   autoZoom: 'When you press Play, automatically zoom and pan so the ball, target stars, and your function fit on screen.',
@@ -97,18 +96,12 @@ function SettingsScreen({
       label: 'Comfort'
     }],
     onChange: v => updateSetting('density', v)
-  })), /*#__PURE__*/React.createElement(SSection, null, "Sound & haptics"), /*#__PURE__*/React.createElement(SGroup, null, /*#__PURE__*/React.createElement(TogRow, {
+  })), /*#__PURE__*/React.createElement(SSection, null, "Sound"), /*#__PURE__*/React.createElement(SGroup, null, /*#__PURE__*/React.createElement(TogRow, {
     label: "Sound effects",
     helpKey: "sound",
     onHelp: setHelpFor,
     value: settings.sound,
     onChange: v => updateSetting('sound', v)
-  }), /*#__PURE__*/React.createElement(TogRow, {
-    label: "Haptics",
-    helpKey: "haptics",
-    onHelp: setHelpFor,
-    value: settings.haptics,
-    onChange: v => updateSetting('haptics', v)
   }), /*#__PURE__*/React.createElement(SliderRow, {
     label: "Volume",
     helpKey: "volume",
