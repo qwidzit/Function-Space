@@ -157,7 +157,7 @@ function HowToPlayScreen({
       overflow: 'hidden',
       marginBottom: 8
     }
-  }, [['Linear   (mx + b)', '10 pts'], ['Quadratic (x²)', '20 pts'], ['Cubic (x³)', '30 pts'], ['Trig (sin, cos, tan)', '25 pts'], ['Log / ln', '30 pts'], ['Exponential (eˣ)', '35 pts'], ['Inv. trig (asin…)', '40 pts']].map(([fn, pts], i, arr) => /*#__PURE__*/React.createElement("div", {
+  }, [['Linear   (mx + b)', '10 pts'], ['Quadratic (x²)', '20 pts'], ['Cubic (x³)', '30 pts'], ['Trig (sin, cos, tan)', '25 pts'], ['Log / ln', '30 pts'], ['Exponential (eˣ)', '35 pts'], ['Derivative (d/dx)', '35 pts'], ['Inv. trig (arcsin…)', '40 pts'], ['Sum (Σ)', '50 pts'], ['Integral (∫)', '55 pts']].map(([fn, pts], i, arr) => /*#__PURE__*/React.createElement("div", {
     key: fn,
     style: {
       display: 'flex',
@@ -186,6 +186,36 @@ function HowToPlayScreen({
       lineHeight: 1.5
     }
   }, "Mixing a polynomial and a transcendental function in one equation applies a \xD71.5 composition bonus. Each equation also adds 20 pts overhead. Fewer, simpler equations = better score.")), /*#__PURE__*/React.createElement(HTPCard, {
+    color: "#6042a6",
+    icon: /*#__PURE__*/React.createElement("svg", {
+      width: 20,
+      height: 20,
+      viewBox: "0 0 24 24",
+      fill: "none"
+    }, /*#__PURE__*/React.createElement("path", {
+      d: "M5 5h6M5 19l3.5-14M14 9c0-2.5 1.5-4 3-4s2 1.5 2 3v8c0 1.5 1 3 2.5 3",
+      stroke: "currentColor",
+      strokeWidth: 1.7,
+      strokeLinecap: "round",
+      strokeLinejoin: "round"
+    })),
+    title: "Advanced operators"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 8
+    }
+  }, "Switch the keyboard to the ", /*#__PURE__*/React.createElement("strong", null, "\uD835\uDC53\uD835\uDC65"), " tab for inverse trig and higher-order operators. Each takes its body as the last argument, written as a normal expression in ", /*#__PURE__*/React.createElement("span", {
+    className: "fp-mono"
+  }, "x"), " (and ", /*#__PURE__*/React.createElement("span", {
+    className: "fp-mono"
+  }, "n"), " for sums)."), /*#__PURE__*/React.createElement(CodeLine, null, "y = arcsin(x)"), /*#__PURE__*/React.createElement(CodeLine, null, "y = sum(1, 5, n*x^n)        \u03A3 from n=1..5"), /*#__PURE__*/React.createElement(CodeLine, null, "y = deriv(sin(x))           \u2248 cos(x)"), /*#__PURE__*/React.createElement(CodeLine, null, "y = integ(x^2)              \u222B\u2080\u02E3 t\xB2 dt = x\xB3/3"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11.5,
+      color: 'var(--fp-ink-4)',
+      lineHeight: 1.5,
+      marginTop: 8
+    }
+  }, "Numerical operators \u2014 sums are capped at 200 terms, integrals use ~150 sample points. Powerful, but each one adds significant complexity to your score.")), /*#__PURE__*/React.createElement(HTPCard, {
     color: "#6042a6",
     icon: /*#__PURE__*/React.createElement("svg", {
       width: 20,

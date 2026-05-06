@@ -105,13 +105,16 @@ function HowToPlayScreen({ onBack, density = 'comfortable' }) {
             marginBottom: 8,
           }}>
             {[
-              ['Linear   (mx + b)',    '10 pts'],
-              ['Quadratic (x²)',        '20 pts'],
-              ['Cubic (x³)',            '30 pts'],
-              ['Trig (sin, cos, tan)',  '25 pts'],
-              ['Log / ln',             '30 pts'],
-              ['Exponential (eˣ)',     '35 pts'],
-              ['Inv. trig (asin…)',    '40 pts'],
+              ['Linear   (mx + b)',     '10 pts'],
+              ['Quadratic (x²)',         '20 pts'],
+              ['Cubic (x³)',             '30 pts'],
+              ['Trig (sin, cos, tan)',   '25 pts'],
+              ['Log / ln',              '30 pts'],
+              ['Exponential (eˣ)',      '35 pts'],
+              ['Derivative (d/dx)',     '35 pts'],
+              ['Inv. trig (arcsin…)',   '40 pts'],
+              ['Sum (Σ)',               '50 pts'],
+              ['Integral (∫)',          '55 pts'],
             ].map(([fn, pts], i, arr) => (
               <div key={fn} style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -126,6 +129,27 @@ function HowToPlayScreen({ onBack, density = 'comfortable' }) {
           <div style={{ fontSize: 11.5, color: 'var(--fp-ink-4)', lineHeight: 1.5 }}>
             Mixing a polynomial and a transcendental function in one equation applies a ×1.5 composition bonus.
             Each equation also adds 20 pts overhead. Fewer, simpler equations = better score.
+          </div>
+        </HTPCard>
+
+        <HTPCard color="#6042a6"
+          icon={<svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+            <path d="M5 5h6M5 19l3.5-14M14 9c0-2.5 1.5-4 3-4s2 1.5 2 3v8c0 1.5 1 3 2.5 3"
+              stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>}
+          title="Advanced operators"
+        >
+          <div style={{ marginBottom: 8 }}>
+            Switch the keyboard to the <strong>𝑓𝑥</strong> tab for inverse trig and higher-order operators.
+            Each takes its body as the last argument, written as a normal expression in <span className="fp-mono">x</span> (and <span className="fp-mono">n</span> for sums).
+          </div>
+          <CodeLine>y = arcsin(x)</CodeLine>
+          <CodeLine>y = sum(1, 5, n*x^n)        Σ from n=1..5</CodeLine>
+          <CodeLine>y = deriv(sin(x))           ≈ cos(x)</CodeLine>
+          <CodeLine>y = integ(x^2)              ∫₀ˣ t² dt = x³/3</CodeLine>
+          <div style={{ fontSize: 11.5, color: 'var(--fp-ink-4)', lineHeight: 1.5, marginTop: 8 }}>
+            Numerical operators — sums are capped at 200 terms, integrals use ~150 sample points.
+            Powerful, but each one adds significant complexity to your score.
           </div>
         </HTPCard>
 

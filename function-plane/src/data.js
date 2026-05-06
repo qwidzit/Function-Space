@@ -295,7 +295,7 @@ function computePackLocked(progress, pack) {
 
   const prevPack = ROMAN_PACKS[romanIdx - 1];
   const prevStars = packTotalStars(progress, prevPack.id);
-  const need = 29; // 95% of 30
+  const need = 27; // 90% of 30
   if (prevStars < need) {
     return {
       locked: true,
