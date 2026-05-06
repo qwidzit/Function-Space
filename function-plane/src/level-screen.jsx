@@ -5,11 +5,14 @@ const { useState: useSL, useRef: useRL, useEffect: useEL, useMemo: useML } = Rea
 const EQ_COLORS = ['#c74440','#2d70b3','#388c46','#6042a6','#fa7e19','#000000'];
 
 const GRAVITY    = 12;
-const SUB_STEPS  = 10;
+const SUB_STEPS  = 20;
 const STAR_R     = 0.55;
 const BALL_R     = 0.22;
 const FALL_LIMIT = -13;
 const TIME_LIMIT = 28;
+// Max slope used in collision response. Without a cap, vertical curves yield
+// mag = √(1+m²) → ∞ and would fling the ball miles off the surface.
+const SLOPE_MAX  = 10;     // ~84° — corresponds to mag ≈ 10.05
 
 // ─── Complexity scoring ───────────────────────────────────────
 function classifyEquation(expr) {
@@ -232,7 +235,7 @@ function physicsStep(ph, explFns, implFns, dt) {
   // the SIGN of (ball_bottom_t − cy_t). When it flips from + to − between
   // two consecutive samples, the ball crossed the curve from above and we
   // collide. Mirror logic with (ball_top_t − cy_t) for upward bumps.
-  const SAMPLES = 12;
+  const SAMPLES = 24;
   let hitFn = null, hitX = ph.x, hitY = -Infinity, hitFromBelow = false;
 
   // Top-side pass: ball coming down onto the curve
@@ -295,13 +298,20 @@ function physicsStep(ph, explFns, implFns, dt) {
     // Slope at the contact x
     const h = 0.003;
     const fp = hitFn(hitX + h), fm = hitFn(hitX - h);
-    const slope = (isFinite(fp) && isFinite(fm)) ? (fp - fm) / (2*h) : 0;
-    const mag   = Math.sqrt(1 + slope*slope);
-    // Cap the perpendicular-distance multiplier so near-vertical curves
-    // don't fling the ball miles off the surface. mag = 3 ≈ 70° slope.
-    const restMag = Math.min(mag, 3);
+    let slope = (isFinite(fp) && isFinite(fm)) ? (fp - fm) / (2*h) : 0;
+    // Clamp slope (not the resulting offset). Prevents near-vertical curves
+    // from flinging the ball miles away while still seating the ball at the
+    // geometrically correct distance for slopes up to ~84°. Capping the
+    // *offset* (as the previous code did) meant steep slopes left the ball
+    // partially inside the curve, and the next substep's sign-flip detector
+    // — which requires "was above, now below" — would miss the now-below
+    // ball, letting it tunnel right through.
+    if (!isFinite(slope)) slope = Math.sign(slope) * SLOPE_MAX || SLOPE_MAX;
+    if (slope >  SLOPE_MAX) slope =  SLOPE_MAX;
+    if (slope < -SLOPE_MAX) slope = -SLOPE_MAX;
+    const mag = Math.sqrt(1 + slope*slope);
     ph.x = hitX;
-    ph.y = hitFromBelow ? (hitY - BALL_R * restMag) : (hitY + BALL_R * restMag);
+    ph.y = hitFromBelow ? (hitY - BALL_R * mag) : (hitY + BALL_R * mag);
 
     let nx = -slope/mag, ny = 1/mag;
     if (hitFromBelow) { nx = -nx; ny = -ny; }
@@ -312,6 +322,39 @@ function physicsStep(ph, explFns, implFns, dt) {
       ph.vx *= PHYSICS_CONFIG.energyRetention;
       ph.vy *= PHYSICS_CONFIG.energyRetention;
       if (-vn > 1.5) ph.bounced = true;
+    }
+  } else {
+    // ── Penetration rescue ──────────────────────────────────────────────
+    // The sample-based crossing test can still miss on extreme slopes (e.g.
+    // x³ near the inflection, very fast tangential entry, or domain edges).
+    // If after the move the ball is sitting *inside* any explicit curve
+    // (its bottom below f(x) but its top still above), pop it out and zero
+    // the penetrating velocity. Cheaper than chasing the perfect detector
+    // and guarantees the ball never finishes a substep tunneled.
+    for (const { fn, domain } of explFns) {
+      if (!inDomain(ph.x, domain)) continue;
+      const cy = fn(ph.x);
+      if (!isFinite(cy)) continue;
+      if (ph.y - BALL_R < cy && ph.y + BALL_R > cy) {
+        const fp = fn(ph.x + EPS), fm = fn(ph.x - EPS);
+        let slope = (isFinite(fp) && isFinite(fm)) ? (fp - fm) / (2*EPS) : 0;
+        if (!isFinite(slope)) slope = Math.sign(slope) * SLOPE_MAX || SLOPE_MAX;
+        if (slope >  SLOPE_MAX) slope =  SLOPE_MAX;
+        if (slope < -SLOPE_MAX) slope = -SLOPE_MAX;
+        const mag = Math.sqrt(1 + slope*slope);
+        // Ball is below the curve along the column → was approaching from
+        // above; place it correctly on top.
+        ph.y = cy + BALL_R * mag;
+        const nx = -slope/mag, ny = 1/mag;
+        const vn = ph.vx*nx + ph.vy*ny;
+        if (vn < 0) {
+          ph.vx -= (1+PHYSICS_CONFIG.bounciness)*vn*nx;
+          ph.vy -= (1+PHYSICS_CONFIG.bounciness)*vn*ny;
+          ph.vx *= PHYSICS_CONFIG.energyRetention;
+          ph.vy *= PHYSICS_CONFIG.energyRetention;
+        }
+        break;
+      }
     }
   }
 
@@ -1210,14 +1253,8 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
         <div style={{ display:'flex', gap:6, alignItems:'center' }}>
           <GoalChip stars={2} label={`score ≤ ${scoreGoal}`}/>
           <GoalChip stars={3} label={`≤ ${eqGoal} eq`}/>
-          {missMsg && (
-            <div style={{ marginLeft:'auto', fontSize:11, color:'#c74440',
-              display:'flex', alignItems:'center', fontWeight:500 }}>
-              {classWarning ? 'Wrong equation type for this pack' : 'Collect all stars!'}
-            </div>
-          )}
           <button onClick={() => setHistoryOpen(true)} disabled={running} style={{
-            marginLeft: missMsg ? 6 : 'auto',
+            marginLeft: 'auto',
             height: 24, padding: '0 10px', borderRadius: 999,
             background: 'transparent', border: '1px solid var(--lv-line)',
             color: 'var(--fp-ink-2)', fontSize: 11, fontWeight: 500,
@@ -1245,6 +1282,16 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
           simStars={simStars} startPos={levelData.ball}
           autoZoomTrigger={autoZoomTrigger} autoZoomEnabled={settings?.autoZoom !== false}
           levelStars={levelData.stars}/>
+        {missMsg && (
+          <div style={{
+            position:'absolute', top:8, left:0, right:0,
+            display:'flex', justifyContent:'center', pointerEvents:'none',
+            fontSize:12, fontWeight:500, color:'#c74440',
+            textShadow:'0 1px 2px rgba(0,0,0,0.35)',
+          }}>
+            {classWarning ? 'Wrong equation type for this pack' : 'Collect all stars!'}
+          </div>
+        )}
       </div>
 
       {/* Equations panel */}

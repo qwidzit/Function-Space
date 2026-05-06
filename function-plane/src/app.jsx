@@ -10,7 +10,7 @@ const SETTINGS_DEFAULTS = {
   volume: 70,
   gridLabels: true,
   autoZoom: true,
-  notation: 'standard',
+  notation: 'pretty',
   notifNewPacks: true,
 };
 
@@ -123,21 +123,22 @@ function App() {
 
   // Achievement unlock detection
   useEffect(() => {
-    if (typeof ACH_LIST === 'undefined') return;
+    if (typeof getAchievementList !== 'function') return;
+    const list = getAchievementList();
     if (!achInitRef.current) {
       // Seed on first render so we don't toast pre-existing achievements
-      ACH_LIST.filter(a => a.check(progress)).forEach(a => prevUnlockedRef.current.add(a.id));
+      list.filter(a => a.check(progress)).forEach(a => prevUnlockedRef.current.add(a.id));
       achInitRef.current = true;
       return;
     }
-    const newlyUnlocked = ACH_LIST.filter(
+    const newlyUnlocked = list.filter(
       a => a.check(progress) && !prevUnlockedRef.current.has(a.id)
     );
     newlyUnlocked.forEach(a => {
       prevUnlockedRef.current.add(a.id);
       setToastQueue(q => [...q, { id: a.id, name: a.name }]);
     });
-  }, [progress]);
+  }, [progress, overridesRev]);
 
   const totalStars    = useMemo(() => totalStarsAll(progress), [progress]);
   const continuePoint = useMemo(() => findContinuePoint(progress), [progress]);
@@ -164,13 +165,20 @@ function App() {
     const Cap = window.Capacitor;
     if (!Cap?.Plugins?.App) return;
     let removeFn;
-    Cap.Plugins.App.addListener('backButton', () => {
+    const ret = Cap.Plugins.App.addListener('backButton', () => {
       if (navStackRef.current.length > 0) {
         navigateBack();
       } else {
         Cap.Plugins.App.exitApp();
       }
-    }).then(h => { removeFn = h?.remove; });
+    });
+    // Capacitor 6 returns the handle directly; older bridges wrapped it in a
+    // Promise. Support both so this can't throw on either runtime.
+    if (ret && typeof ret.then === 'function') {
+      ret.then(h => { removeFn = h?.remove; });
+    } else {
+      removeFn = ret?.remove;
+    }
     return () => { try { removeFn?.(); } catch {} };
   }, []);
 

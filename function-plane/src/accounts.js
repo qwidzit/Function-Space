@@ -432,14 +432,28 @@
 
   // ── Admin overrides (pack_overrides + level_overrides tables) ─────────────
   async function fetchOverrides() {
-    if (!_sb) return { packs: [], levels: [] };
-    const [{ data: packs, error: pErr }, { data: levels, error: lErr }] = await Promise.all([
+    if (!_sb) return { packs: [], levels: [], achievements: [] };
+    const [
+      { data: packs, error: pErr },
+      { data: levels, error: lErr },
+      { data: achievements, error: aErr },
+    ] = await Promise.all([
       _sb.from('pack_overrides').select('*'),
       _sb.from('level_overrides').select('*'),
+      _sb.from('achievement_overrides').select('*'),
     ]);
     if (pErr) console.warn('FP_AUTH: pack_overrides fetch error', pErr);
     if (lErr) console.warn('FP_AUTH: level_overrides fetch error', lErr);
-    return { packs: packs || [], levels: levels || [] };
+    // Achievements table may not exist yet — surface missing-table softly so
+    // older Supabase projects keep working without the migration applied.
+    if (aErr && !/not exist|relation/i.test(aErr.message || '')) {
+      console.warn('FP_AUTH: achievement_overrides fetch error', aErr);
+    }
+    return {
+      packs: packs || [],
+      levels: levels || [],
+      achievements: achievements || [],
+    };
   }
 
   async function savePackOverride(packId, patch) {
@@ -470,6 +484,27 @@
           : '';
       throw new Error((error.message || 'Save failed') + hint);
     }
+  }
+
+  async function saveAchievementOverride(row) {
+    if (!_sb) throw new Error('Supabase not configured');
+    const payload = { ...row, updated_at: new Date().toISOString() };
+    const { error } = await _sb.from('achievement_overrides').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('FP_AUTH: achievement_overrides upsert error', error);
+      const hint = /not exist|relation/i.test(error.message)
+        ? ' (run the admin migration SQL in Supabase first — see admin panel ▸ Achievements ▸ Help)'
+        : /policy|permission|rls/i.test(error.message)
+          ? ' (your account name must be exactly "Test Account" with no trailing spaces)'
+          : '';
+      throw new Error((error.message || 'Save failed') + hint);
+    }
+  }
+
+  async function deleteAchievementOverride(id) {
+    if (!_sb) throw new Error('Supabase not configured');
+    const { error } = await _sb.from('achievement_overrides').delete().eq('id', id);
+    if (error) throw new Error(error.message);
   }
 
   function isAdmin() {
@@ -558,6 +593,7 @@
     getActiveProgress, updateActiveProgress,
     buildLeaderboard, totalStarsFromProgress,
     fetchOverrides, savePackOverride, saveLevelOverride,
+    saveAchievementOverride, deleteAchievementOverride,
     subscribe,
     AVATARS,
   };

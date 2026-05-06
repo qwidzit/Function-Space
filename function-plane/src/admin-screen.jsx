@@ -18,9 +18,10 @@ const FUNCTION_CLASSES = [
 
 function AdminScreen({ onBack, density = 'comfortable', onChanged }) {
   const padX = density === 'compact' ? 18 : 22;
-  const [view, setView]   = useAS('list');           // 'list' | 'pack' | 'level' | 'users'
+  const [view, setView]   = useAS('list');           // 'list' | 'pack' | 'level' | 'users' | 'achievements' | 'achievement'
   const [pack, setPack]   = useAS(null);
   const [levelIndex, setLI] = useAS(0);
+  const [editAchId, setEditAchId] = useAS(null);     // null = new
 
   if (view === 'pack' && pack)
     return <PackEditor pack={pack} padX={padX}
@@ -36,16 +37,37 @@ function AdminScreen({ onBack, density = 'comfortable', onChanged }) {
   if (view === 'users')
     return <UsersAdmin padX={padX} onBack={() => setView('list')}/>;
 
+  if (view === 'achievements')
+    return <AchievementsAdmin padX={padX}
+      onBack={() => setView('list')}
+      onChanged={onChanged}
+      onEdit={(id) => { setEditAchId(id); setView('achievement'); }}/>;
+
+  if (view === 'achievement')
+    return <AchievementEditor padX={padX} editId={editAchId}
+      onBack={() => setView('achievements')}
+      onChanged={onChanged}/>;
+
   return (
     <ScreenFrameAS title="Admin" onBack={onBack} padX={padX}>
       <div style={{ padding: '14px 0 24px' }}>
         <button onClick={() => setView('users')} style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-          padding: '12px 14px', marginBottom: 14,
+          padding: '12px 14px', marginBottom: 8,
           borderRadius: 12, background: 'var(--fp-ink)', color: 'var(--fp-bg)',
           textAlign: 'left', fontSize: 14, fontWeight: 500,
         }}>
           <span style={{ flex: 1 }}>Manage users / grant premium</span>
+          <Icon.Chevron dir="right" size={14} c="currentColor"/>
+        </button>
+
+        <button onClick={() => setView('achievements')} style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+          padding: '12px 14px', marginBottom: 14,
+          borderRadius: 12, background: 'var(--fp-ink)', color: 'var(--fp-bg)',
+          textAlign: 'left', fontSize: 14, fontWeight: 500,
+        }}>
+          <span style={{ flex: 1 }}>Manage achievements</span>
           <Icon.Chevron dir="right" size={14} c="currentColor"/>
         </button>
 
@@ -355,6 +377,226 @@ function LevelEditor({ pack, levelIndex, padX, onBack, onChanged }) {
         <button onClick={save} disabled={busy} style={primaryBtn(busy)}>
           {busy ? 'Saving…' : 'Save level'}
         </button>
+        {msg && <div style={{ marginTop: 10, fontSize: 12, textAlign: 'center', color: msg === 'Saved' ? 'var(--fp-accent)' : '#e34' }}>{msg}</div>}
+      </div>
+    </ScreenFrameAS>
+  );
+}
+
+// ─── Achievements admin ────────────────────────────────────────────────────
+
+const ACH_SQL = `-- Run this once in Supabase SQL editor.
+create table if not exists achievement_overrides (
+  id text primary key,
+  name text not null,
+  description text,
+  kind text not null,
+  threshold integer,
+  pack_id text,
+  level_index integer,
+  is_hidden boolean default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+alter table achievement_overrides enable row level security;
+drop policy if exists "ach_read" on achievement_overrides;
+create policy "ach_read" on achievement_overrides for select using (true);
+drop policy if exists "ach_admin_write" on achievement_overrides;
+create policy "ach_admin_write" on achievement_overrides for all
+  using     (exists (select 1 from profiles where id = auth.uid() and name = 'Test Account'))
+  with check(exists (select 1 from profiles where id = auth.uid() and name = 'Test Account'));`;
+
+function AchievementsAdmin({ padX, onBack, onEdit, onChanged }) {
+  const rows = window.FP_ACH_OVERRIDES || [];
+  const [showSql, setShowSql] = useAS(false);
+
+  return (
+    <ScreenFrameAS title="Admin · Achievements" onBack={onBack} padX={padX}>
+      <div style={{ padding: '14px 0 24px' }}>
+        <button onClick={() => onEdit(null)} style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          padding: '12px 14px', marginBottom: 10,
+          borderRadius: 12, background: 'var(--fp-accent)', color: 'var(--fp-accent-ink)',
+          fontSize: 14, fontWeight: 500,
+        }}>+ New achievement</button>
+
+        <button onClick={() => setShowSql(s => !s)} style={{
+          width: '100%', padding: '8px 12px', marginBottom: 14,
+          fontSize: 11.5, color: 'var(--fp-ink-3)',
+          border: '1px solid var(--fp-line)', borderRadius: 10,
+          background: 'transparent', textAlign: 'left',
+        }}>
+          {showSql ? '▾ Hide' : '▸ Show'} Supabase migration SQL (run once)
+        </button>
+        {showSql && (
+          <pre className="fp-mono" style={{
+            background: 'var(--fp-surface-2)', border: '1px solid var(--fp-line)',
+            borderRadius: 10, padding: 12, fontSize: 10.5, lineHeight: 1.5,
+            color: 'var(--fp-ink-2)', whiteSpace: 'pre-wrap', marginBottom: 14,
+            overflowX: 'auto',
+          }}>{ACH_SQL}</pre>
+        )}
+
+        <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fp-ink-3)', marginBottom: 8 }}>
+          Built-in ({(window.ACH_LIST || []).length})
+        </div>
+        {(window.ACH_LIST || []).map((a, i) => (
+          <div key={a.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+            marginBottom: 5, borderRadius: 11,
+            background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+            opacity: 0.7,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fp-ink)' }}>{a.name}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--fp-ink-3)' }}>{a.desc}</div>
+            </div>
+            <span style={{ fontSize: 10.5, color: 'var(--fp-ink-4)' }}>code</span>
+          </div>
+        ))}
+
+        <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--fp-ink-3)', margin: '18px 0 8px' }}>
+          Custom ({rows.length})
+        </div>
+        {rows.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--fp-ink-3)', fontSize: 12.5, padding: '14px 0' }}>
+            None yet — tap “New achievement” to add one.
+          </div>
+        )}
+        {rows.map(r => (
+          <button key={r.id} onClick={() => onEdit(r.id)} style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+            padding: '11px 12px', marginBottom: 5, borderRadius: 11,
+            background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+            textAlign: 'left',
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fp-ink)' }}>{r.name}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--fp-ink-3)' }}>
+                {window.ACH_KINDS?.[r.kind]?.label || r.kind} · id <span className="fp-mono">{r.id}</span>
+              </div>
+            </div>
+            {r.is_hidden && <span style={{ fontSize: 10.5, color: 'var(--fp-ink-4)' }}>hidden</span>}
+            <Icon.Chevron dir="right" size={13} c="var(--fp-ink-3)"/>
+          </button>
+        ))}
+      </div>
+    </ScreenFrameAS>
+  );
+}
+
+function AchievementEditor({ padX, editId, onBack, onChanged }) {
+  const existing = (window.FP_ACH_OVERRIDES || []).find(r => r.id === editId);
+  const [id,           setId]    = useAS(existing?.id || '');
+  const [name,         setName]  = useAS(existing?.name || '');
+  const [description,  setDesc]  = useAS(existing?.description || '');
+  const [kind,         setKind]  = useAS(existing?.kind || 'total_stars');
+  const [threshold,    setThr]   = useAS(existing?.threshold != null ? String(existing.threshold) : '');
+  const [packId,       setPackId]= useAS(existing?.pack_id || '');
+  const [levelIndex,   setLvl]   = useAS(existing?.level_index != null ? String(existing.level_index) : '');
+  const [isHidden,     setHidden]= useAS(!!existing?.is_hidden);
+  const [busy, setBusy] = useAS(false);
+  const [msg,  setMsg]  = useAS('');
+
+  const def = window.ACH_KINDS?.[kind];
+  const needs = def?.needs || [];
+
+  const KIND_OPTIONS = Object.entries(window.ACH_KINDS || {}).map(([id, v]) => ({ id, label: v.label }));
+  const PACK_OPTIONS = [{ id: '', label: '— none —' }, ...(window.ROMAN_PACKS || []).map(p => ({ id: p.id, label: `${p.id} · ${p.name}` })),
+                                                       ...(window.SPECIAL_PACKS || []).map(p => ({ id: p.id, label: `${p.id} · ${p.name}` }))];
+
+  const save = async () => {
+    setBusy(true); setMsg('');
+    try {
+      if (!id.trim()) throw new Error('ID is required');
+      if (!/^[a-z0-9_]+$/i.test(id.trim())) throw new Error('ID can only contain letters, numbers, and underscores');
+      if (!name.trim()) throw new Error('Name is required');
+      if (!def) throw new Error('Pick an achievement kind');
+      const payload = {
+        id: id.trim(),
+        name: name.trim(),
+        description: description.trim() || null,
+        kind,
+        threshold:   needs.includes('threshold')  ? intOrNull(threshold) : null,
+        pack_id:     needs.includes('packId')     ? (packId || null)     : null,
+        level_index: needs.includes('levelIndex') ? intOrNull(levelIndex): null,
+        is_hidden: !!isHidden,
+      };
+      for (const need of needs) {
+        const k = need === 'packId' ? 'pack_id' : need === 'levelIndex' ? 'level_index' : need;
+        if (payload[k] == null || payload[k] === '') throw new Error(`Missing required field: ${need}`);
+      }
+      await FP_AUTH.saveAchievementOverride(payload);
+      setMsg('Saved');
+      onChanged && await onChanged();
+    } catch (e) { setMsg(e.message); }
+    finally    { setBusy(false); }
+  };
+
+  const remove = async () => {
+    if (!existing) return;
+    const ok = await window.fpConfirm({
+      title: `Delete "${existing.name}"?`,
+      body: 'This removes the achievement for everyone. Already-earned ones will simply disappear from their list.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true); setMsg('');
+    try {
+      await FP_AUTH.deleteAchievementOverride(existing.id);
+      onChanged && await onChanged();
+      onBack();
+    } catch (e) { setMsg(e.message); setBusy(false); }
+  };
+
+  return (
+    <ScreenFrameAS title={existing ? `Achievement · ${existing.id}` : 'New achievement'} onBack={onBack} padX={padX}>
+      <div style={{ padding: '18px 0 24px' }}>
+        <FieldText label="ID (stable, unique)" value={id} onChange={setId} placeholder="e.g. winter_event_2026"/>
+        <FieldText label="Name (shown to players)" value={name} onChange={setName} placeholder="e.g. Winter Champion"/>
+        <FieldText label="Description (optional — auto-generated if blank)" value={description} onChange={setDesc} placeholder="Earn 100 stars in total"/>
+        <FieldSelect label="Kind" value={kind} onChange={setKind} options={KIND_OPTIONS}/>
+
+        {needs.includes('threshold') && (
+          <FieldText label="Threshold (N)" value={threshold} onChange={setThr} placeholder="e.g. 50"/>
+        )}
+        {needs.includes('packId') && (
+          <FieldSelect label="Pack" value={packId} onChange={setPackId} options={PACK_OPTIONS}/>
+        )}
+        {needs.includes('levelIndex') && (
+          <FieldText label="Level index (0–9)" value={levelIndex} onChange={setLvl} placeholder="0"/>
+        )}
+
+        <label style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 14px', borderRadius: 12, marginBottom: 12,
+          background: 'var(--fp-surface)', border: '1px solid var(--fp-line)',
+          cursor: 'pointer',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fp-ink)' }}>Hidden</div>
+            <div style={{ fontSize: 11.5, color: 'var(--fp-ink-3)', marginTop: 2 }}>
+              When checked, this achievement won't show in any player's list.
+            </div>
+          </div>
+          <input type="checkbox" checked={isHidden} onChange={e => setHidden(e.target.checked)}
+            style={{ width: 18, height: 18, accentColor: 'var(--fp-ink)' }}/>
+        </label>
+
+        <button onClick={save} disabled={busy} style={primaryBtn(busy)}>
+          {busy ? 'Saving…' : (existing ? 'Save changes' : 'Create achievement')}
+        </button>
+
+        {existing && (
+          <button onClick={remove} disabled={busy} style={{
+            width:'100%', height:42, marginTop:10, borderRadius:12,
+            background:'transparent', color:'#e34',
+            border:'1px solid #e34', fontSize:13, fontWeight:500,
+            opacity: busy ? 0.6 : 1,
+          }}>Delete achievement</button>
+        )}
+
         {msg && <div style={{ marginTop: 10, fontSize: 12, textAlign: 'center', color: msg === 'Saved' ? 'var(--fp-accent)' : '#e34' }}>{msg}</div>}
       </div>
     </ScreenFrameAS>

@@ -2,7 +2,89 @@
 
 const { useState: useACHState } = React;
 
-const ACH_LIST = [
+// ── Predicate templates for admin-defined achievements ─────────────────────
+// To keep the achievements table data-only (no eval'd code) the admin picks
+// a `kind` from this list and supplies its parameters. Adding new mechanics
+// = add a new entry here + wire its inputs in admin-screen.jsx.
+//
+// Param shape: { threshold?, packId?, levelIndex? }. Each kind documents
+// which params it consumes; others are ignored.
+const ACH_KINDS = {
+  total_stars: {
+    label: 'Earn N stars total',
+    needs: ['threshold'],
+    desc: ({ threshold }) => `Earn ${threshold} stars in total`,
+    build: ({ threshold }) => p =>
+      Object.values(p).reduce((a, pd) => a + pd.stars.reduce((b, s) => b + (s > 0 ? s : 0), 0), 0) >= threshold,
+  },
+  total_levels: {
+    label: 'Complete N levels overall',
+    needs: ['threshold'],
+    desc: ({ threshold }) => threshold === 1 ? 'Complete your first level' : `Complete ${threshold} levels across all packs`,
+    build: ({ threshold }) => p =>
+      Object.values(p).reduce((a, pd) => a + pd.stars.filter(s => s >= 1).length, 0) >= threshold,
+  },
+  pack_complete: {
+    label: 'Complete N levels in pack X',
+    needs: ['packId', 'threshold'],
+    desc: ({ packId, threshold }) => `Complete ${threshold} levels in ${packId}`,
+    build: ({ packId, threshold }) => p =>
+      (p[packId]?.stars ?? []).filter(s => s >= 1).length >= threshold,
+  },
+  pack_full_gold: {
+    label: '3★ on every level of pack X',
+    needs: ['packId'],
+    desc: ({ packId }) => `Earn 3 stars on every level in ${packId}`,
+    build: ({ packId }) => p => {
+      const stars = p[packId]?.stars ?? [];
+      return stars.length === 10 && stars.every(s => s === 3);
+    },
+  },
+  any_3stars: {
+    label: '3★ on at least one level (any pack)',
+    needs: [],
+    desc: () => 'Earn 3 stars on any level',
+    build: () => p => Object.values(p).some(pd => pd.stars.some(s => s === 3)),
+  },
+  min_score: {
+    label: 'Finish a level with score ≤ N',
+    needs: ['threshold'],
+    desc: ({ threshold }) => `Complete a level with a score of ${threshold} or less`,
+    build: ({ threshold }) => p => Object.values(p).some(pd =>
+      pd.best.some((b, i) => b != null && b <= threshold && (pd.stars[i] ?? -1) >= 1)
+    ),
+  },
+};
+
+// Build runtime achievement objects from raw Supabase rows. Bad rows (missing
+// required params, unknown kind) are skipped silently — admins see them as
+// invalid in the editor instead.
+function buildCustomAchievements(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+  return rows.filter(r => !r.is_hidden).map(r => {
+    const def = ACH_KINDS[r.kind];
+    if (!def) return null;
+    const params = {
+      threshold:  r.threshold,
+      packId:     r.pack_id,
+      levelIndex: r.level_index,
+    };
+    for (const need of def.needs) {
+      if (params[need] == null || params[need] === '') return null;
+    }
+    return {
+      id:    r.id,
+      name:  r.name,
+      desc:  r.description || def.desc(params),
+      check: def.build(params),
+      _custom: true,
+    };
+  }).filter(Boolean);
+}
+window.ACH_KINDS = ACH_KINDS;
+window.buildCustomAchievements = buildCustomAchievements;
+
+const BUILTIN_ACH_LIST = [
   {
     id: 'first_roll',
     name: 'First Roll',
@@ -78,10 +160,22 @@ const ACH_LIST = [
 ];
 
 
+// Combine built-in achievements with any defined in Supabase.
+function getAchievementList() {
+  const custom = buildCustomAchievements(window.FP_ACH_OVERRIDES || []);
+  return [...BUILTIN_ACH_LIST, ...custom];
+}
+window.getAchievementList = getAchievementList;
+// Back-compat: a few callers (and dev consoles) still read window.ACH_LIST.
+// Keep it as the built-ins; live UI uses getAchievementList() which includes
+// custom rows.
+const ACH_LIST = BUILTIN_ACH_LIST;
+
 function AchievementsScreen({ onBack, progress, density = 'comfortable' }) {
   const padX = density === 'compact' ? 22 : 26;
   const [tab, setTab] = useACHState('achievements'); // 'achievements' | 'leaderboard'
-  const unlocked = new Set(ACH_LIST.filter(a => a.check(progress)).map(a => a.id));
+  const list = getAchievementList();
+  const unlocked = new Set(list.filter(a => a.check(progress)).map(a => a.id));
   const count = unlocked.size;
   const myStars = totalStarsAll(progress);
 
@@ -113,7 +207,7 @@ function AchievementsScreen({ onBack, progress, density = 'comfortable' }) {
         {tab === 'achievements' && (
           <div style={{ fontSize: 12, color: 'var(--fp-ink-3)', display: 'flex', alignItems: 'baseline', gap: 3 }}>
             <span className="fp-mono" style={{ fontSize: 16, color: 'var(--fp-ink)', fontWeight: 500 }}>{count}</span>
-            / {ACH_LIST.length}
+            / {list.length}
           </div>
         )}
       </div>
@@ -141,7 +235,7 @@ function AchievementsScreen({ onBack, progress, density = 'comfortable' }) {
             <div style={{ height: 4, background: 'var(--fp-line)', borderRadius: 2 }}>
               <div style={{
                 height: '100%', borderRadius: 2, background: 'var(--fp-accent)',
-                width: `${(count / ACH_LIST.length) * 100}%`,
+                width: `${list.length ? (count / list.length) * 100 : 0}%`,
                 transition: 'width .5s ease',
               }}/>
             </div>
@@ -153,12 +247,12 @@ function AchievementsScreen({ onBack, progress, density = 'comfortable' }) {
             padding: `0 ${padX}px`,
             paddingBottom: 'max(28px, env(safe-area-inset-bottom, 0px))',
           }}>
-            {ACH_LIST.map((ach, i) => {
+            {list.map((ach, i) => {
               const done = unlocked.has(ach.id);
               return (
                 <div key={ach.id} style={{
                   display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0',
-                  borderBottom: i < ACH_LIST.length - 1 ? '1px solid var(--fp-line)' : 'none',
+                  borderBottom: i < list.length - 1 ? '1px solid var(--fp-line)' : 'none',
                   opacity: done ? 1 : 0.42,
                 }}>
                   <div style={{

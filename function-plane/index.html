@@ -75,12 +75,16 @@
       background: #0e0f10;
       display: flex; align-items: center; justify-content: center;
       flex-direction: column;
+      /* Held invisible for the first 500ms so a fast boot shows nothing at
+         all; the JS below either reveals it (slow boot) or skips it. */
+      opacity: 0;
       transition: opacity .3s ease;
       /* Use a system serif up front; the wordmark restyles itself once
          Instrument Serif has loaded. Most platforms render Georgia in italic
          close enough that the swap is barely perceptible. */
       font-family: Georgia, 'Times New Roman', serif;
     }
+    #fp-splash.fp-show { opacity: 1; }
     #fp-splash.fp-fade { opacity: 0; pointer-events: none; }
     #fp-splash .fp-wordmark {
       font-style: italic; font-weight: 400;
@@ -124,34 +128,39 @@
   </div>
   <div id="root"></div>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <!-- Vendor scripts bundled locally so the WebView (Capacitor on Android/iOS)
+       can boot without any network round-trips. CDNs were unreliable inside
+       the WebView, and runtime Babel (`<script type="text/babel" src=...>`)
+       silently fails on Android because Babel-standalone XHR-fetches and
+       eval's each JSX file. Instead, JSX is pre-compiled to .js by
+       scripts/build-jsx.js — re-run that after editing any .jsx file. -->
+  <script src="vendor/react.production.min.js"></script>
+  <script src="vendor/react-dom.production.min.js"></script>
 
   <!-- Supabase JS client (loaded before accounts.js so FP_AUTH can init) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="vendor/supabase.js"></script>
   <script src="src/supabase-config.js"></script>
   <script src="src/premium-config.js"></script>
 
   <script src="src/physics-config.js"></script>
   <script src="src/audio.js"></script>
   <script src="src/accounts.js"></script>
-  <script type="text/babel" src="src/ui-kit.jsx"></script>
-  <script type="text/babel" src="src/app-logo.jsx"></script>
-  <script type="text/babel" src="src/data.jsx"></script>
-  <script type="text/babel" src="src/main-screen.jsx"></script>
-  <script type="text/babel" src="src/pack-selector.jsx"></script>
-  <script type="text/babel" src="src/level-selector.jsx"></script>
-  <script type="text/babel" src="src/settings-screen.jsx"></script>
-  <script type="text/babel" src="src/keyboard.jsx"></script>
-  <script type="text/babel" src="src/level-screen.jsx"></script>
-  <script type="text/babel" src="src/level-complete.jsx"></script>
-  <script type="text/babel" src="src/how-to-play.jsx"></script>
-  <script type="text/babel" src="src/achievements.jsx"></script>
-  <script type="text/babel" src="src/account-screen.jsx"></script>
-  <script type="text/babel" src="src/admin-screen.jsx"></script>
-  <script type="text/babel" src="src/legal-screens.jsx"></script>
-  <script type="text/babel" src="src/app.jsx"></script>
+  <script src="src/ui-kit.js"></script>
+  <script src="src/app-logo.js"></script>
+  <script src="src/data.js"></script>
+  <script src="src/main-screen.js"></script>
+  <script src="src/pack-selector.js"></script>
+  <script src="src/level-selector.js"></script>
+  <script src="src/settings-screen.js"></script>
+  <script src="src/keyboard.js"></script>
+  <script src="src/level-screen.js"></script>
+  <script src="src/level-complete.js"></script>
+  <script src="src/how-to-play.js"></script>
+  <script src="src/achievements.js"></script>
+  <script src="src/account-screen.js"></script>
+  <script src="src/admin-screen.js"></script>
+  <script src="src/legal-screens.js"></script>
+  <script src="src/app.js"></script>
 
   <script>
     if ('serviceWorker' in navigator) {
@@ -169,8 +178,16 @@
     (function () {
       var splash = document.getElementById('fp-splash');
       if (!splash) return;
-      var minDelay = 350;        // floor so the splash doesn't blink in/out
-      var startedAt = Date.now();
+      var revealDelay = 500;     // wait this long before showing the splash
+      var minVisible  = 350;     // once shown, don't blink it out instantly
+      var done = false;
+      var revealedAt = 0;
+
+      var revealTimer = setTimeout(function () {
+        if (done) return;
+        splash.classList.add('fp-show');
+        revealedAt = Date.now();
+      }, revealDelay);
 
       function fontsReady() {
         if (!document.fonts || !document.fonts.load) return Promise.resolve();
@@ -193,8 +210,16 @@
         });
       }
       function hide() {
-        var elapsed = Date.now() - startedAt;
-        var wait = Math.max(0, minDelay - elapsed);
+        if (done) return;
+        done = true;
+        clearTimeout(revealTimer);
+        // If the splash was never revealed (fast boot), just remove it.
+        if (!splash.classList.contains('fp-show')) {
+          splash.remove();
+          return;
+        }
+        var visibleFor = Date.now() - revealedAt;
+        var wait = Math.max(0, minVisible - visibleFor);
         setTimeout(function () {
           splash.classList.add('fp-fade');
           setTimeout(function () { splash.remove(); }, 320);

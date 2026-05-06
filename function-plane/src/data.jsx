@@ -92,7 +92,7 @@ function visiblePacks(packs) {
 
 // Apply overrides fetched from Supabase. Mutates packs in place so existing
 // references (e.g. ROMAN_PACKS[0].name) immediately reflect new values.
-function applyOverrides({ packs = [], levels = [] }) {
+function applyOverrides({ packs = [], levels = [], achievements = [] }) {
   const lvlMap = {};
   levels.forEach(l => { lvlMap[`${l.pack_id}-${l.level_index}`] = l; });
   window.FP_LEVEL_OVERRIDES = lvlMap;
@@ -100,6 +100,8 @@ function applyOverrides({ packs = [], levels = [] }) {
   const packMap = {};
   packs.forEach(p => { packMap[p.pack_id] = p; });
   window.FP_PACK_OVERRIDES = packMap;
+
+  window.FP_ACH_OVERRIDES = achievements;
 
   // Patch in-place so static references update too
   [...ROMAN_PACKS, ...SPECIAL_PACKS].forEach(p => {
