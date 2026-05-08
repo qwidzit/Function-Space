@@ -24,13 +24,17 @@ function classifyEquation(expr) {
 
   // Count *occurrences* of each transcendental — composing several is more
   // expensive than using one. sin(x) ≠ sin(x)*cos(x)*tan(x).
-  const trigCount = (e.match(/\b(sin|cos|tan)\(/g) || []).length - (e.match(/\b(arcsin|arccos|arctan)\(/g) || []).length;
-  const invTrigCount = (e.match(/\b(asin|acos|atan)\(/g) || []).length + (e.match(/\b(arcsin|arccos|arctan)\(/g) || []).length;
-  const logCount = (e.match(/\b(log|ln)\(/g) || []).length;
-  const expCount = (e.match(/\bexp\(/g) || []).length + (e.match(/(^|[^a-z])e\^/g) || []).length;
-  const sumCount = (e.match(/\bsum\(/g) || []).length;
-  const derivCount = (e.match(/\bderiv\(/g) || []).length;
-  const integCount = (e.match(/\binteg\(/g) || []).length;
+  //
+  // Uses negative-lookbehind `(?<![a-z])` instead of `\b` so coefficients are
+  // counted: `4cos(x)` matches (digit-before-letter has no \b but isn't a
+  // letter), while `acos(x)` correctly *doesn't* match the trig regex.
+  const trigCount = (e.match(/(?<![a-z])(sin|cos|tan)\(/g) || []).length - (e.match(/(?<![a-z])(arcsin|arccos|arctan)\(/g) || []).length;
+  const invTrigCount = (e.match(/(?<![a-z])(asin|acos|atan)\(/g) || []).length + (e.match(/(?<![a-z])(arcsin|arccos|arctan)\(/g) || []).length;
+  const logCount = (e.match(/(?<![a-z])(log|ln)\(/g) || []).length;
+  const expCount = (e.match(/(?<![a-z])exp\(/g) || []).length + (e.match(/(^|[^a-z])e\^/g) || []).length;
+  const sumCount = (e.match(/(?<![a-z])sum\(/g) || []).length;
+  const derivCount = (e.match(/(?<![a-z])deriv\(/g) || []).length;
+  const integCount = (e.match(/(?<![a-z])integ\(/g) || []).length;
 
   // Variable-base or variable-exponent powers: x^x, 2^x, x^y — these are
   // genuinely exponential and used to score 0 (linear) due to the regex
@@ -67,13 +71,13 @@ function classifyEquation(expr) {
 function detectClass(expr) {
   if (!expr || !expr.trim()) return null;
   const e = expr.toLowerCase().replace(/\s+/g, '');
-  if (/\b(sum|deriv|integ)\(/.test(e)) return 'advanced';
-  if (/\b(asin|acos|atan|arcsin|arccos|arctan)\(/.test(e)) return 'inverseTrig';
-  if (/\bexp\(/.test(e) || /(^|[^a-z])e\^/.test(e)) return 'exp';
+  if (/(?<![a-z])(sum|deriv|integ)\(/.test(e)) return 'advanced';
+  if (/(?<![a-z])(asin|acos|atan|arcsin|arccos|arctan)\(/.test(e)) return 'inverseTrig';
+  if (/(?<![a-z])exp\(/.test(e) || /(^|[^a-z])e\^/.test(e)) return 'exp';
   // Variable-exponent or variable-base powers — x^x, 2^x, x^y — count as exponential.
   if (/[a-z_)\]]\^[a-z]/.test(e) || /[a-z_)\]]\*\*[a-z]/.test(e)) return 'exp';
-  if (/\b(log|ln)\(/.test(e)) return 'log';
-  if (/\b(sin|cos|tan)\(/.test(e)) return 'trig';
+  if (/(?<![a-z])(log|ln)\(/.test(e)) return 'log';
+  if (/(?<![a-z])(sin|cos|tan)\(/.test(e)) return 'trig';
   let maxDeg = 0;
   for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)|\)\*\*(\d+)|\)\^(\d+)/g)) maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2] || m[3] || m[4]));
   if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
