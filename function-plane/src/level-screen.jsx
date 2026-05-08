@@ -37,10 +37,11 @@ function classifyEquation(expr) {
   // only matching numeric exponents.
   const hasVarExp = /[a-z_)\]]\^[a-z]/.test(e) || /[a-z_)\]]\*\*[a-z]/.test(e);
 
-  // Polynomial degree
+  // Polynomial degree — match x^N, x**N *and* (expr)^N / (expr)**N so that
+  // shifted/scaled forms like (x-0.5)^2 and 0.7(x+3)^3 score correctly.
   let maxDeg = 0;
-  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)/g))
-    maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2]));
+  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)|\)\*\*(\d+)|\)\^(\d+)/g))
+    maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2] || m[3] || m[4]));
   if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
 
   // Base score from the dominant feature
@@ -82,8 +83,8 @@ function detectClass(expr) {
   if (/\b(log|ln)\(/.test(e)) return 'log';
   if (/\b(sin|cos|tan)\(/.test(e)) return 'trig';
   let maxDeg = 0;
-  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)/g))
-    maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2]));
+  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)|\)\*\*(\d+)|\)\^(\d+)/g))
+    maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2] || m[3] || m[4]));
   if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
   if (maxDeg >= 3) return 'cubic';
   if (maxDeg === 2) return 'quadratic';
@@ -725,11 +726,33 @@ function HudChip({ label, value }) {
 }
 
 // ─── Domain editor ────────────────────────────────────────────
-function DomainEditor({ domain, onChange }) {
+// Domain value button — tapping opens the NumPad instead of the native keyboard.
+function DomValBtn({ segId, val, domKb, onTap }) {
+  const isActive = domKb?.id === segId;
+  const display  = isActive ? domKb.val : String(val);
+  return (
+    <button
+      onPointerDown={e => { e.preventDefault(); onTap(); }}
+      style={{
+        width:52, minHeight:28, fontSize:12, textAlign:'center', padding:'3px 4px',
+        background: isActive
+          ? 'color-mix(in srgb, var(--fp-accent) 18%, var(--fp-surface))'
+          : 'var(--fp-surface)',
+        border: `1px solid ${isActive ? 'var(--fp-accent)' : 'var(--lv-line)'}`,
+        borderRadius:6, color:'var(--fp-ink)',
+        fontFamily:"'Geist Mono','ui-monospace',monospace",
+        cursor:'pointer',
+      }}>
+      {display}
+    </button>
+  );
+}
+
+function DomainEditor({ domain, onChange, domKb, onDomInput }) {
   const segs = domain || [];
   const add    = () => onChange([...segs, { xMin:-5, xMax:5 }]);
   const remove = i => onChange(segs.filter((_,j)=>j!==i));
-  const update = (i, k, v) => onChange(segs.map((s,j)=>j===i?{...s,[k]:parseFloat(v)||0}:s));
+  const update = (i, k, v) => onChange(segs.map((s,j)=>j===i?{...s,[k]:v}:s));
 
   return (
     <div style={{
@@ -749,27 +772,88 @@ function DomainEditor({ domain, onChange }) {
       {segs.map((seg,i) => (
         <div key={i} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
           <span className="fp-mono" style={{ fontSize:11, color:'var(--fp-ink-3)' }}>x ∈</span>
-          <input type="number" value={seg.xMin}
-            onChange={e=>update(i,'xMin',e.target.value)}
-            style={{
-              width:52, fontSize:12, textAlign:'center', padding:'3px 4px',
-              background:'var(--fp-surface)', border:'1px solid var(--lv-line)',
-              borderRadius:6, color:'var(--fp-ink)',
-            }}/>
+          <DomValBtn segId={`${i}-min`} val={seg.xMin} domKb={domKb}
+            onTap={() => onDomInput(`${i}-min`, seg.xMin, v => update(i,'xMin',v))}/>
           <span style={{ fontSize:11, color:'var(--fp-ink-3)' }}>to</span>
-          <input type="number" value={seg.xMax}
-            onChange={e=>update(i,'xMax',e.target.value)}
-            style={{
-              width:52, fontSize:12, textAlign:'center', padding:'3px 4px',
-              background:'var(--fp-surface)', border:'1px solid var(--lv-line)',
-              borderRadius:6, color:'var(--fp-ink)',
-            }}/>
+          <DomValBtn segId={`${i}-max`} val={seg.xMax} domKb={domKb}
+            onTap={() => onDomInput(`${i}-max`, seg.xMax, v => update(i,'xMax',v))}/>
           <button onClick={()=>remove(i)} style={{ color:'var(--fp-ink-3)', fontSize:16, lineHeight:1, padding:'0 4px' }}>×</button>
         </div>
       ))}
       <button onClick={add} style={{
         fontSize:11.5, color:'var(--fp-accent)', fontWeight:500, padding:'2px 0',
       }}>+ Add segment</button>
+    </div>
+  );
+}
+
+// ─── Number pad (for domain segment values) ───────────────────
+// Value-based (no DOM ref needed): the current string value is passed in,
+// and onChange receives the updated string. The parent commits to state.
+function NumPad({ val, onChange, onDone }) {
+  const ins = ch => {
+    // only one leading minus allowed
+    if (ch === '-' && val !== '') return;
+    onChange(val + ch);
+  };
+  const del = () => onChange(val.slice(0, -1));
+  const clr = () => onChange('');
+
+  const ROWS = [
+    [{ lbl:'7', act:()=>ins('7'), t:'num' }, { lbl:'8', act:()=>ins('8'), t:'num' },
+     { lbl:'9', act:()=>ins('9'), t:'num' }, { lbl:'⌫', act:del, t:'del' }],
+    [{ lbl:'4', act:()=>ins('4'), t:'num' }, { lbl:'5', act:()=>ins('5'), t:'num' },
+     { lbl:'6', act:()=>ins('6'), t:'num' }, { lbl:'−', act:()=>ins('-'), t:'op' }],
+    [{ lbl:'1', act:()=>ins('1'), t:'num' }, { lbl:'2', act:()=>ins('2'), t:'num' },
+     { lbl:'3', act:()=>ins('3'), t:'num' }, { lbl:'CLR', act:clr, t:'util' }],
+    [{ lbl:'0', act:()=>ins('0'), t:'num' }, { lbl:'.', act:()=>ins('.'), t:'num' },
+     null,
+     { lbl:'Done', act:onDone, t:'nav' }],
+  ];
+
+  const bg = t => {
+    if (t === 'num')  return 'var(--fp-surface)';
+    if (t === 'del')  return 'var(--fp-surface-2)';
+    if (t === 'util') return 'var(--fp-surface-2)';
+    if (t === 'nav')  return 'var(--fp-accent)';
+    return 'var(--lv-bg)';
+  };
+  const fg = t => t === 'nav' ? 'var(--fp-accent-ink)' : 'var(--fp-ink)';
+
+  return (
+    <div style={{
+      background:'var(--fp-surface)', borderTop:'1px solid var(--lv-line)',
+      padding:'4px 5px', paddingBottom:'max(5px, env(safe-area-inset-bottom, 0px))',
+      userSelect:'none', WebkitUserSelect:'none', touchAction:'manipulation',
+    }}>
+      <div style={{ padding:'4px 4px 6px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <span style={{ fontSize:10, color:'var(--fp-ink-3)', letterSpacing:'0.08em', textTransform:'uppercase' }}>
+          x-value
+        </span>
+        <span style={{ fontFamily:"'Geist Mono','ui-monospace',monospace", fontSize:15, color:'var(--fp-ink)', minWidth:50, textAlign:'right' }}>
+          {val || '0'}
+        </span>
+      </div>
+      {ROWS.map((row, ri) => (
+        <div key={ri} style={{ display:'flex', gap:3, marginBottom: ri < ROWS.length-1 ? 3 : 0 }}>
+          {row.map((k, ki) => k ? (
+            <button key={ki}
+              onPointerDown={e => { e.preventDefault(); k.act(); }}
+              style={{
+                flex:1, height:38, borderRadius:7,
+                fontSize: k.lbl.length > 3 ? 10 : 13,
+                fontWeight: k.t === 'nav' ? 600 : 400,
+                background: bg(k.t), border:'1px solid var(--lv-line)',
+                color: fg(k.t), cursor:'pointer',
+                display:'flex', alignItems:'center', justifyContent:'center',
+              }}>
+              {k.lbl}
+            </button>
+          ) : (
+            <div key={ki} style={{ flex:1 }}/>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -793,7 +877,7 @@ function prettifyExpr(s) {
 window.prettifyExpr = prettifyExpr;
 
 // ─── Equation row ─────────────────────────────────────────────
-function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) {
+function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation, domKb, onDomInput }) {
   const inputRef = useRL(null);
   const [domOpen, setDomOpen] = useSL(false);
   const [focused, setFocused] = useSL(false);
@@ -879,6 +963,8 @@ function EqRow({ idx, eq, onChange, onRemove, disabled, onActivate, notation }) 
         <DomainEditor
           domain={eq.domain}
           onChange={domain => onChange({ domain: domain.length ? domain : null })}
+          domKb={domKb}
+          onDomInput={onDomInput}
         />
       )}
     </div>
@@ -891,6 +977,31 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled,
   const [activeId,  setActiveId]  = useSL(null);
   const [kbVisible, setKbVisible] = useSL(true);
   const kbOpen = activeId !== null && !disabled && kbVisible;
+
+  // Domain value keyboard (NumPad) — active when user taps a domain-segment field.
+  // null = closed; { id, val } = open with current string value.
+  const [domKb, setDomKb] = useSL(null);
+  const domKbCommitRef    = useRL(null); // current commit fn (number → void)
+
+  const onDomInput = (id, currentVal, commit) => {
+    domKbCommitRef.current = commit;
+    setDomKb({ id, val: String(currentVal) });
+  };
+
+  const handleNumPadChange = v => {
+    setDomKb(d => ({ ...d, val: v }));
+    const n = parseFloat(v);
+    if (!isNaN(n) && domKbCommitRef.current) domKbCommitRef.current(n);
+  };
+
+  const handleNumPadDone = () => {
+    const n = parseFloat(domKb?.val);
+    if (!isNaN(n) && domKbCommitRef.current) domKbCommitRef.current(n);
+    setDomKb(null);
+    domKbCommitRef.current = null;
+  };
+
+  const anyKbOpen = (kbOpen && !domKb) || domKb !== null;
 
   const activate = (id, ref) => {
     activeInputRef.current = ref.current;
@@ -926,8 +1037,10 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled,
     <div style={{
       background:'var(--lv-surface)', borderTop:'1px solid var(--lv-line)',
       display:'flex', flexDirection:'column',
-      maxHeight: kbOpen ? '50vh' : (expanded ? 300 : 188),
-      transition:'max-height .2s ease',
+      // When any keyboard is open, remove the height cap so equations + keyboard
+      // are both fully visible (the plane above shrinks to accommodate).
+      maxHeight: anyKbOpen ? 'none' : (expanded ? 300 : 188),
+      transition: anyKbOpen ? 'none' : 'max-height .2s ease',
     }}>
       {/* Handle */}
       <button onClick={onToggle} style={{ height:22, display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -995,7 +1108,8 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled,
         {equations.map((e,i) => (
           <EqRow key={e.id} idx={i} eq={e} disabled={disabled} notation={notation}
             onChange={p=>update(e.id,p)} onRemove={()=>remove(e.id)}
-            onActivate={ref=>activate(e.id,ref)}/>
+            onActivate={ref=>activate(e.id,ref)}
+            domKb={domKb} onDomInput={onDomInput}/>
         ))}
         {equations.length === 0 && (
           <div style={{ padding:'14px 16px', fontSize:12, color:'var(--fp-ink-3)' }}>
@@ -1004,8 +1118,9 @@ function EquationsPanel({ equations, setEquations, expanded, onToggle, disabled,
         )}
       </div>
 
-      {/* Custom keyboard */}
-      {kbOpen && <MathKeyboard inputRef={activeInputRef} onChange={handleKbChange}/>}
+      {/* Custom keyboard — math for equations, numpad for domain values */}
+      {kbOpen && !domKb && <MathKeyboard inputRef={activeInputRef} onChange={handleKbChange}/>}
+      {domKb && <NumPad val={domKb.val} onChange={handleNumPadChange} onDone={handleNumPadDone}/>}
     </div>
   );
 }
@@ -1351,7 +1466,7 @@ function LevelScreen({ pack, levelIndex, progress, onBack, onComplete, onNext, d
           totalStars={totalStars}
           onReplay={handleReplay}
           onNext={onNext}
-          onClose={()=>setCompleted(null)}/>
+          onClose={()=>{ setCompleted(null); resetSim(); }}/>
       )}
 
       {historyOpen && (

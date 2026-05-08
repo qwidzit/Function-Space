@@ -11,7 +11,7 @@
 // review before you publish, especially if you want to ship to children
 // under 13 or in regulated regions (EU, UK, California, Brazil).
 
-const LEGAL_PUBLISHER = '[YOUR LEGAL NAME]'; // TODO: fill before launch
+const LEGAL_PUBLISHER = 'Nikolay Yaremko';
 const LEGAL_JURIS = 'the Netherlands';
 const LEGAL_EMAIL = 'functionplane.support@gmail.com';
 const LEGAL_WEBSITE = ''; // TODO: fill before launch

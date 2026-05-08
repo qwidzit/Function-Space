@@ -302,17 +302,22 @@ function App() {
           const stars = [...pd.stars];
           const best = [...pd.best];
           const bestTime = pd.bestTime ? [...pd.bestTime] : Array(10).fill(null);
+          // maxScore: highest score ever achieved on a winning run (for achievements
+          // like "solve a level with a complex equation worth 100+ pts").
+          const maxScore = pd.maxScore ? [...pd.maxScore] : Array(10).fill(null);
           stars[levelIndex] = Math.max(stars[levelIndex] ?? -1, rating);
           best[levelIndex] = best[levelIndex] == null ? score : Math.min(best[levelIndex], score);
           if (time != null) {
             bestTime[levelIndex] = bestTime[levelIndex] == null ? time : Math.min(bestTime[levelIndex], time);
           }
+          maxScore[levelIndex] = maxScore[levelIndex] == null ? score : Math.max(maxScore[levelIndex], score);
           if (levelIndex + 1 < 10 && stars[levelIndex + 1] === null) {
             stars[levelIndex + 1] = -1;
           }
           pd.stars = stars;
           pd.best = best;
           pd.bestTime = bestTime;
+          pd.maxScore = maxScore;
           return next;
         });
       };

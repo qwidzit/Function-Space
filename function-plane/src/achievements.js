@@ -152,6 +152,49 @@ const BUILTIN_ACH_LIST = [{
   name: 'Completionist',
   desc: 'Complete all 10 Roman numeral packs',
   check: p => ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'].every(r => (p[`r-${r}`]?.stars ?? []).filter(s => s >= 1).length >= 10)
+},
+// ── Time-based achievements ───────────────────────────────────────────────
+{
+  id: 'flash',
+  name: 'Flash',
+  desc: 'Beat any level in under 0.6 seconds',
+  check: p => Object.values(p).some(pd => (pd.bestTime ?? []).some(t => t != null && t <= 0.6))
+}, {
+  id: 'sunday_stroll',
+  name: 'Sunday Stroll',
+  desc: 'Beat any level with a time of 3 seconds or more',
+  check: p => Object.values(p).some(pd => (pd.bestTime ?? []).some((t, i) => t != null && t >= 3.0 && (pd.stars[i] ?? -1) >= 1))
+},
+// ── Score-based achievements ──────────────────────────────────────────────
+{
+  id: 'big_brain',
+  name: 'Big Brain',
+  desc: 'Beat any level with an equation score over 100 points',
+  // maxScore tracks the highest score used in a winning run (populated by
+  // handleComplete in app.jsx). Falls back to "best" for old progress entries.
+  check: p => Object.values(p).some(pd => (pd.maxScore ?? pd.best ?? []).some((s, i) => s != null && s > 100 && (pd.stars[i] ?? -1) >= 1))
+},
+// ── Star milestones ───────────────────────────────────────────────────────
+{
+  id: 'stars_15',
+  name: 'Rising Star',
+  desc: 'Earn 15 stars in total',
+  check: p => Object.values(p).reduce((a, pd) => a + pd.stars.reduce((b, s) => b + (s > 0 ? s : 0), 0), 0) >= 15
+}, {
+  id: 'stars_30',
+  name: 'Stargazer',
+  desc: 'Earn 30 stars in total',
+  check: p => Object.values(p).reduce((a, pd) => a + pd.stars.reduce((b, s) => b + (s > 0 ? s : 0), 0), 0) >= 30
+}, {
+  id: 'stars_100',
+  name: 'Supernova',
+  desc: 'Earn 100 stars in total',
+  check: p => Object.values(p).reduce((a, pd) => a + pd.stars.reduce((b, s) => b + (s > 0 ? s : 0), 0), 0) >= 100
+}, {
+  id: 'stars_200',
+  name: 'Galaxy Brain',
+  desc: 'Earn 200 stars in total',
+  check: p => Object.values(p).reduce((a, pd) => a + pd.stars.reduce((b, s) => b + (s > 0 ? s : 0), 0), 0) >= 200
 }];
 
 // Combine built-in achievements with any defined in Supabase.

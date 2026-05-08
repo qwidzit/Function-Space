@@ -37,9 +37,10 @@ function classifyEquation(expr) {
   // only matching numeric exponents.
   const hasVarExp = /[a-z_)\]]\^[a-z]/.test(e) || /[a-z_)\]]\*\*[a-z]/.test(e);
 
-  // Polynomial degree
+  // Polynomial degree — match x^N, x**N *and* (expr)^N / (expr)**N so that
+  // shifted/scaled forms like (x-0.5)^2 and 0.7(x+3)^3 score correctly.
   let maxDeg = 0;
-  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)/g)) maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2]));
+  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)|\)\*\*(\d+)|\)\^(\d+)/g)) maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2] || m[3] || m[4]));
   if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
 
   // Base score from the dominant feature
@@ -74,7 +75,7 @@ function detectClass(expr) {
   if (/\b(log|ln)\(/.test(e)) return 'log';
   if (/\b(sin|cos|tan)\(/.test(e)) return 'trig';
   let maxDeg = 0;
-  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)/g)) maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2]));
+  for (const m of e.matchAll(/x\*\*(\d+)|x\^(\d+)|\)\*\*(\d+)|\)\^(\d+)/g)) maxDeg = Math.max(maxDeg, parseInt(m[1] || m[2] || m[3] || m[4]));
   if (/x\*x/.test(e)) maxDeg = Math.max(maxDeg, 2);
   if (maxDeg >= 3) return 'cubic';
   if (maxDeg === 2) return 'quadratic';
@@ -998,9 +999,40 @@ function HudChip({
 }
 
 // ─── Domain editor ────────────────────────────────────────────
+// Domain value button — tapping opens the NumPad instead of the native keyboard.
+function DomValBtn({
+  segId,
+  val,
+  domKb,
+  onTap
+}) {
+  const isActive = domKb?.id === segId;
+  const display = isActive ? domKb.val : String(val);
+  return /*#__PURE__*/React.createElement("button", {
+    onPointerDown: e => {
+      e.preventDefault();
+      onTap();
+    },
+    style: {
+      width: 52,
+      minHeight: 28,
+      fontSize: 12,
+      textAlign: 'center',
+      padding: '3px 4px',
+      background: isActive ? 'color-mix(in srgb, var(--fp-accent) 18%, var(--fp-surface))' : 'var(--fp-surface)',
+      border: `1px solid ${isActive ? 'var(--fp-accent)' : 'var(--lv-line)'}`,
+      borderRadius: 6,
+      color: 'var(--fp-ink)',
+      fontFamily: "'Geist Mono','ui-monospace',monospace",
+      cursor: 'pointer'
+    }
+  }, display);
+}
 function DomainEditor({
   domain,
-  onChange
+  onChange,
+  domKb,
+  onDomInput
 }) {
   const segs = domain || [];
   const add = () => onChange([...segs, {
@@ -1010,7 +1042,7 @@ function DomainEditor({
   const remove = i => onChange(segs.filter((_, j) => j !== i));
   const update = (i, k, v) => onChange(segs.map((s, j) => j === i ? {
     ...s,
-    [k]: parseFloat(v) || 0
+    [k]: v
   } : s));
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -1046,39 +1078,21 @@ function DomainEditor({
       fontSize: 11,
       color: 'var(--fp-ink-3)'
     }
-  }, "x \u2208"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: seg.xMin,
-    onChange: e => update(i, 'xMin', e.target.value),
-    style: {
-      width: 52,
-      fontSize: 12,
-      textAlign: 'center',
-      padding: '3px 4px',
-      background: 'var(--fp-surface)',
-      border: '1px solid var(--lv-line)',
-      borderRadius: 6,
-      color: 'var(--fp-ink)'
-    }
+  }, "x \u2208"), /*#__PURE__*/React.createElement(DomValBtn, {
+    segId: `${i}-min`,
+    val: seg.xMin,
+    domKb: domKb,
+    onTap: () => onDomInput(`${i}-min`, seg.xMin, v => update(i, 'xMin', v))
   }), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
       color: 'var(--fp-ink-3)'
     }
-  }, "to"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: seg.xMax,
-    onChange: e => update(i, 'xMax', e.target.value),
-    style: {
-      width: 52,
-      fontSize: 12,
-      textAlign: 'center',
-      padding: '3px 4px',
-      background: 'var(--fp-surface)',
-      border: '1px solid var(--lv-line)',
-      borderRadius: 6,
-      color: 'var(--fp-ink)'
-    }
+  }, "to"), /*#__PURE__*/React.createElement(DomValBtn, {
+    segId: `${i}-max`,
+    val: seg.xMax,
+    domKb: domKb,
+    onTap: () => onDomInput(`${i}-max`, seg.xMax, v => update(i, 'xMax', v))
   }), /*#__PURE__*/React.createElement("button", {
     onClick: () => remove(i),
     style: {
@@ -1096,6 +1110,157 @@ function DomainEditor({
       padding: '2px 0'
     }
   }, "+ Add segment"));
+}
+
+// ─── Number pad (for domain segment values) ───────────────────
+// Value-based (no DOM ref needed): the current string value is passed in,
+// and onChange receives the updated string. The parent commits to state.
+function NumPad({
+  val,
+  onChange,
+  onDone
+}) {
+  const ins = ch => {
+    // only one leading minus allowed
+    if (ch === '-' && val !== '') return;
+    onChange(val + ch);
+  };
+  const del = () => onChange(val.slice(0, -1));
+  const clr = () => onChange('');
+  const ROWS = [[{
+    lbl: '7',
+    act: () => ins('7'),
+    t: 'num'
+  }, {
+    lbl: '8',
+    act: () => ins('8'),
+    t: 'num'
+  }, {
+    lbl: '9',
+    act: () => ins('9'),
+    t: 'num'
+  }, {
+    lbl: '⌫',
+    act: del,
+    t: 'del'
+  }], [{
+    lbl: '4',
+    act: () => ins('4'),
+    t: 'num'
+  }, {
+    lbl: '5',
+    act: () => ins('5'),
+    t: 'num'
+  }, {
+    lbl: '6',
+    act: () => ins('6'),
+    t: 'num'
+  }, {
+    lbl: '−',
+    act: () => ins('-'),
+    t: 'op'
+  }], [{
+    lbl: '1',
+    act: () => ins('1'),
+    t: 'num'
+  }, {
+    lbl: '2',
+    act: () => ins('2'),
+    t: 'num'
+  }, {
+    lbl: '3',
+    act: () => ins('3'),
+    t: 'num'
+  }, {
+    lbl: 'CLR',
+    act: clr,
+    t: 'util'
+  }], [{
+    lbl: '0',
+    act: () => ins('0'),
+    t: 'num'
+  }, {
+    lbl: '.',
+    act: () => ins('.'),
+    t: 'num'
+  }, null, {
+    lbl: 'Done',
+    act: onDone,
+    t: 'nav'
+  }]];
+  const bg = t => {
+    if (t === 'num') return 'var(--fp-surface)';
+    if (t === 'del') return 'var(--fp-surface-2)';
+    if (t === 'util') return 'var(--fp-surface-2)';
+    if (t === 'nav') return 'var(--fp-accent)';
+    return 'var(--lv-bg)';
+  };
+  const fg = t => t === 'nav' ? 'var(--fp-accent-ink)' : 'var(--fp-ink)';
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: 'var(--fp-surface)',
+      borderTop: '1px solid var(--lv-line)',
+      padding: '4px 5px',
+      paddingBottom: 'max(5px, env(safe-area-inset-bottom, 0px))',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+      touchAction: 'manipulation'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '4px 4px 6px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: 'var(--fp-ink-3)',
+      letterSpacing: '0.08em',
+      textTransform: 'uppercase'
+    }
+  }, "x-value"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "'Geist Mono','ui-monospace',monospace",
+      fontSize: 15,
+      color: 'var(--fp-ink)',
+      minWidth: 50,
+      textAlign: 'right'
+    }
+  }, val || '0')), ROWS.map((row, ri) => /*#__PURE__*/React.createElement("div", {
+    key: ri,
+    style: {
+      display: 'flex',
+      gap: 3,
+      marginBottom: ri < ROWS.length - 1 ? 3 : 0
+    }
+  }, row.map((k, ki) => k ? /*#__PURE__*/React.createElement("button", {
+    key: ki,
+    onPointerDown: e => {
+      e.preventDefault();
+      k.act();
+    },
+    style: {
+      flex: 1,
+      height: 38,
+      borderRadius: 7,
+      fontSize: k.lbl.length > 3 ? 10 : 13,
+      fontWeight: k.t === 'nav' ? 600 : 400,
+      background: bg(k.t),
+      border: '1px solid var(--lv-line)',
+      color: fg(k.t),
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }
+  }, k.lbl) : /*#__PURE__*/React.createElement("div", {
+    key: ki,
+    style: {
+      flex: 1
+    }
+  })))));
 }
 
 // ─── Pretty-print expressions ─────────────────────────────────
@@ -1131,7 +1296,9 @@ function EqRow({
   onRemove,
   disabled,
   onActivate,
-  notation
+  notation,
+  domKb,
+  onDomInput
 }) {
   const inputRef = useRL(null);
   const [domOpen, setDomOpen] = useSL(false);
@@ -1288,7 +1455,9 @@ function EqRow({
     domain: eq.domain,
     onChange: domain => onChange({
       domain: domain.length ? domain : null
-    })
+    }),
+    domKb: domKb,
+    onDomInput: onDomInput
   }));
 }
 
@@ -1307,6 +1476,34 @@ function EquationsPanel({
   const [activeId, setActiveId] = useSL(null);
   const [kbVisible, setKbVisible] = useSL(true);
   const kbOpen = activeId !== null && !disabled && kbVisible;
+
+  // Domain value keyboard (NumPad) — active when user taps a domain-segment field.
+  // null = closed; { id, val } = open with current string value.
+  const [domKb, setDomKb] = useSL(null);
+  const domKbCommitRef = useRL(null); // current commit fn (number → void)
+
+  const onDomInput = (id, currentVal, commit) => {
+    domKbCommitRef.current = commit;
+    setDomKb({
+      id,
+      val: String(currentVal)
+    });
+  };
+  const handleNumPadChange = v => {
+    setDomKb(d => ({
+      ...d,
+      val: v
+    }));
+    const n = parseFloat(v);
+    if (!isNaN(n) && domKbCommitRef.current) domKbCommitRef.current(n);
+  };
+  const handleNumPadDone = () => {
+    const n = parseFloat(domKb?.val);
+    if (!isNaN(n) && domKbCommitRef.current) domKbCommitRef.current(n);
+    setDomKb(null);
+    domKbCommitRef.current = null;
+  };
+  const anyKbOpen = kbOpen && !domKb || domKb !== null;
   const activate = (id, ref) => {
     activeInputRef.current = ref.current;
     setActiveId(id);
@@ -1352,8 +1549,10 @@ function EquationsPanel({
       borderTop: '1px solid var(--lv-line)',
       display: 'flex',
       flexDirection: 'column',
-      maxHeight: kbOpen ? '50vh' : expanded ? 300 : 188,
-      transition: 'max-height .2s ease'
+      // When any keyboard is open, remove the height cap so equations + keyboard
+      // are both fully visible (the plane above shrinks to accommodate).
+      maxHeight: anyKbOpen ? 'none' : expanded ? 300 : 188,
+      transition: anyKbOpen ? 'none' : 'max-height .2s ease'
     }
   }, /*#__PURE__*/React.createElement("button", {
     onClick: onToggle,
@@ -1500,7 +1699,9 @@ function EquationsPanel({
     notation: notation,
     onChange: p => update(e.id, p),
     onRemove: () => remove(e.id),
-    onActivate: ref => activate(e.id, ref)
+    onActivate: ref => activate(e.id, ref),
+    domKb: domKb,
+    onDomInput: onDomInput
   })), equations.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '14px 16px',
@@ -1509,9 +1710,13 @@ function EquationsPanel({
     }
   }, "Tap ", /*#__PURE__*/React.createElement("strong", null, "Add"), " to enter an equation, e.g. ", /*#__PURE__*/React.createElement("span", {
     className: "fp-mono"
-  }, "y=sin(x)"))), kbOpen && /*#__PURE__*/React.createElement(MathKeyboard, {
+  }, "y=sin(x)"))), kbOpen && !domKb && /*#__PURE__*/React.createElement(MathKeyboard, {
     inputRef: activeInputRef,
     onChange: handleKbChange
+  }), domKb && /*#__PURE__*/React.createElement(NumPad, {
+    val: domKb.val,
+    onChange: handleNumPadChange,
+    onDone: handleNumPadDone
   }));
 }
 
@@ -2012,7 +2217,10 @@ function LevelScreen({
     totalStars: totalStars,
     onReplay: handleReplay,
     onNext: onNext,
-    onClose: () => setCompleted(null)
+    onClose: () => {
+      setCompleted(null);
+      resetSim();
+    }
   }), historyOpen && /*#__PURE__*/React.createElement(HistoryPopup, {
     packId: pack.id,
     levelIndex: levelIndex,
